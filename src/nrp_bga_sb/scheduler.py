@@ -140,19 +140,28 @@ class ScheduledBGAdapter:
         base_policy: Callable[[TrialLog, ActionEvidence], BGDecision],
         config: FrequencyConfig,
         accumulation_ms: float = 200.0,
+        cortex_generator: Callable[[TrialLog, float], ActionEvidence] | None = None,
     ) -> None:
         """Construct a ScheduledBGAdapter.
 
         Args:
-            base_policy:      Any callable matching the standard policy interface.
-            config:           Four-knob frequency configuration.
-            accumulation_ms:  Length of the pre-decision integration window (ms).
-                              The loop runs for round(accumulation_ms / base_dt_ms)
-                              ticks, with a minimum of 1.
+            base_policy:       Any callable matching the standard policy interface.
+            config:            Four-knob frequency configuration.
+            accumulation_ms:   Length of the pre-decision integration window (ms).
+                               The loop runs for round(accumulation_ms / base_dt_ms)
+                               ticks, with a minimum of 1.
+            cortex_generator:  Optional callable (trial_log, elapsed_ms) → ActionEvidence.
+                               When set, Gate 1 (input sampling) calls the generator at
+                               each sampling tick with elapsed_ms = tick * base_dt_ms instead
+                               of copying the static action_evidence.  This introduces
+                               time-varying cortical evidence so that BG-frequency effects
+                               become observable (Phase 4+).  When None, behaviour is
+                               identical to Phase 3 (static evidence).
         """
         self._base_policy = base_policy
         self._config = config
         self._accumulation_ms = accumulation_ms
+        self._cortex_generator = cortex_generator
 
         # Pre-compute integer period_ticks for each gate.
         # Trigger: convert Hz → ms period → ticks using the base simulation step.
@@ -193,9 +202,20 @@ class ScheduledBGAdapter:
             # Trigger: tick is a multiple of input_period.
             # Why: models the rate at which BG reads cortical salience; slower sampling
             #      means the BG operates on stale evidence between sampling events.
-            # Outcome: last_sampled_evidence is updated to the current action_evidence.
+            # Outcome: last_sampled_evidence is updated from the cortex generator (if
+            #   set) or from the static action_evidence (Phase 3 / no-generator path).
             if tick % self._input_period == 0:
-                last_sampled_evidence = action_evidence
+                if self._cortex_generator is not None:
+                    # Time-varying evidence: elapsed_ms increases with each tick.
+                    # Trigger: cortex_generator is configured (Phase 4+).
+                    # Why: makes frequency effects observable — slower input sampling
+                    #      means BG reads earlier, lower-salience evidence; at very low
+                    #      frequencies BG may never see enough evidence to commit.
+                    # Outcome: last_sampled_evidence reflects cortical state at this tick.
+                    elapsed_ms = tick * self._config.base_dt_ms
+                    last_sampled_evidence = self._cortex_generator(trial_log, elapsed_ms)
+                else:
+                    last_sampled_evidence = action_evidence
 
             # Gate 2: Integration (policy call)
             # Trigger: tick is a multiple of integration_period AND evidence is available.
