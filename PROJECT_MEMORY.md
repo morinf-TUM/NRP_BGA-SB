@@ -9,6 +9,7 @@ This file is the primary source of truth for project context. It is derived from
 ## 1. Current state
 
 - **Phase 0 complete (2026-06-19).** Source tree, schemas, trial logger, replay, and scorer are implemented and reviewed. M0 acceptance criterion verified: synthetic trials replay exactly from logs; scorer emits metrics without any neural module.
+- **Phase 1 in progress (2026-06-19).** All four task engines complete (Tasks 1.1–1.4). Tasks 1.5 (reference policies) and 1.6 (cue generator) pending.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -347,3 +348,66 @@ Split into sub-modules only when a Phase explicitly requires it.
 - **Tests use `tmp_path`** (pytest built-in) for all file I/O. No writes to permanent paths in tests.
 - **Section-header comments** (`# --- SectionName ---`) required in multi-section modules.
 - **Decision-point comments** (Trigger / Why / Outcome) required on validators and frequency-intervention control flow.
+
+---
+
+## 17. Phase 1 engine map (in progress as of 2026-06-19)
+
+### 17.1 Source layout additions
+
+```
+src/nrp_bga_sb/engines/
+    __init__.py         — subpackage root
+    go_nogo.py          — GoNoGoConfig, run_go_nogo_trials (Task 1.1)
+    two_choice.py       — TwoChoiceConfig, run_two_choice_trials (Task 1.2)
+    stop_signal.py      — StopSignalConfig, StaircaseState, run_stop_signal_trials (Task 1.3)
+    change_of_mind.py   — ChangeOfMindConfig, run_change_of_mind_trials (Task 1.4)
+
+tests/
+    test_engine_gonogo.py       — 33 tests (Task 1.1)
+    test_engine_twochoice.py    — 30 tests (Task 1.2)
+    test_engine_stopsignal.py   — 32 tests (Task 1.3)
+    test_engine_changeofmind.py — 21 tests (Task 1.4)
+```
+
+### 17.2 Shared engine conventions (all four engines)
+
+- **Policy callable interface:** `(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDecision`.
+  All engines accept the same callable; the engine varies `ActionEvidence` content per trial type.
+- **Logical clock:** integer ms offsets from `go_cue_onset_ms`; converted to seconds for `sim_time`
+  fields in schemas. Phase 1: logical time == real time.
+- **TrialLogger optional:** pass `logger=None` for in-memory-only operation.
+- **Outcome fields:** all engines set `trial_log.success` (bool) and `trial_log.failure_mode` (str | None).
+- **movement_onset_time:** set only when `selected_channel >= 0`; enables downstream RT computation.
+- **movement_end:** emitted only when a response was made.
+
+### 17.3 Per-engine design notes
+
+**go_nogo.py**
+- Single policy call per trial at `decision_point_ms`.
+- Outcomes: success (go + responded), correct_withhold (no-go + no response), miss (go + no response), false_alarm (no-go + responded).
+
+**two_choice.py**
+- Single policy call; two targets always presented (target_on_left, target_on_right).
+- Conflict levels cycle round-robin across trials; `channel_salience` encodes conflict.
+- Outcomes: success (correct target), wrong_target (wrong channel), timeout (no response).
+
+**stop_signal.py**
+- Single policy call at `decision_point_ms`; stop signal may arrive before it.
+- Staircase (Verbruggen et al. 2019): SSD ↑ after inhibit success, ↓ after failure.
+- Outcomes: success (go responded / stop inhibited), stop_failure (responded on stop), miss (no response on go).
+
+**change_of_mind.py**
+- **Two policy calls per switch trial:** pre-switch at `initial_decision_point_ms` (initial_salience),
+  post-switch at `post_switch_decision_point_ms` (post_switch_salience).
+- `evidence_change` event emitted at `switch_delay_ms` strictly between the two calls.
+- Pre-switch result is logged (decision_commit payload phase="pre_switch") but does NOT determine outcome.
+- Switch delay categories cycle in insertion order over switch trials.
+- Outcomes: correct_switch (post-switch ch1), perseveration (post-switch ch0), miss (post-switch -1).
+- No-switch baseline trials: single call, standard go outcome.
+
+### 17.4 Scorer extension (Task 1.4)
+
+`scorer.score_trials` now computes `switch_success_rate` in addition to existing metrics:
+- Identifies switch trials by presence of `evidence_change` event.
+- Rate = (trials with success=True) / (all switch trials); None if no switch trials present.
