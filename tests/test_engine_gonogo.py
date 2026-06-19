@@ -174,21 +174,33 @@ def test_all_trials_have_events():
 
 
 def test_trial_has_canonical_events():
-    """Test that each trial contains the expected canonical events."""
+    """Test that each trial contains the expected canonical events.
+
+    Trial_start, fixation_on, decision_commit, and trial_end are emitted on all trials.
+    Movement_end is only emitted when the agent responds (channel >= 0).
+    """
     config = default_config()
     trials = run_go_nogo_trials(config, oracle_policy)
 
-    expected_events = {
+    always_present_events = {
         EventType.trial_start,
         EventType.fixation_on,
         EventType.decision_commit,
-        EventType.movement_end,
         EventType.trial_end,
     }
 
     for trial in trials:
         event_types = {e.event_type for e in trial.events}
-        assert expected_events.issubset(event_types)
+        assert always_present_events.issubset(event_types)
+
+        # movement_end is present iff the agent responded
+        movement_end_events = [e for e in trial.events if e.event_type == EventType.movement_end]
+        if trial.movement_onset_time is not None:
+            # Agent responded: movement_end must be present
+            assert len(movement_end_events) == 1
+        else:
+            # Agent did not respond (no_go correct_withhold): movement_end absent
+            assert len(movement_end_events) == 0
 
 
 def test_go_trial_emits_go_cue():
@@ -467,30 +479,79 @@ def test_policy_receives_correct_action_evidence():
 
 
 def test_response_window_start_offset():
-    """Test that response window respects start offset."""
+    """Test that response window respects start offset.
+
+    Response window is defined relative to cue onset, not absolute time.
+    Window: [response_window_start_ms, response_window_start_ms + response_window_duration_ms)
+    Decision at decision_point_ms (relative to cue onset) must fall within this window.
+
+    Config:
+    - response_window_start_ms = 500 (window opens 500 ms after cue onset)
+    - response_window_duration_ms = 1000 (window duration is 1000 ms)
+    - decision_point_ms = 300 (decision made 300 ms after cue onset)
+    - Window: [500, 1500) ms relative to cue onset
+    - Decision at 300 ms is OUTSIDE window (before window start)
+
+    Outcome: oracle acts on go trials, but is outside window → wrong_action failure.
+    """
     config = default_config()
-    config.cue_onset_ms = 1000
     config.response_window_start_ms = 500
     config.response_window_duration_ms = 1000
-    config.decision_point_ms = 300  # 1000 + 300 = 1300 ms absolute
-    # Trigger: decision at 1300 ms absolute.
-    # Window: [500, 1500] ms.
-    # Result: 1300 is within window.
-    run_go_nogo_trials(config, oracle_policy)
-    # Oracle should succeed on go trials (since it acts and is within window).
+    config.decision_point_ms = 300  # Before window start
+
+    # Test go trials: oracle acts, but outside window → wrong_action
+    config.go_probability = 1.0
+    config.n_trials = 10
+    trials = run_go_nogo_trials(config, oracle_policy)
+    for trial in trials:
+        assert trial.success is False
+        assert trial.failure_mode == "wrong_action"
+
+    # Test no-go trials: oracle does not act → correct_withhold
+    config.go_probability = 0.0
+    config.n_trials = 10
+    trials = run_go_nogo_trials(config, oracle_policy)
+    for trial in trials:
+        assert trial.success is True
+        assert trial.failure_mode is None
 
 
 def test_response_window_respects_duration():
-    """Test that decisions outside window are penalized."""
+    """Test that decisions outside window are penalized.
+
+    Response window is relative to cue onset, not absolute time.
+    Window: [response_window_start_ms, response_window_start_ms + response_window_duration_ms)
+    Decision at decision_point_ms (relative to cue onset) must fall within this window.
+
+    Config:
+    - response_window_start_ms = 200 (window opens 200 ms after cue onset)
+    - response_window_duration_ms = 300 (window duration is 300 ms)
+    - decision_point_ms = 600 (decision made 600 ms after cue onset)
+    - Window: [200, 500) ms relative to cue onset
+    - Decision at 600 ms is OUTSIDE window (after window end)
+
+    Outcome: oracle acts on go trials, but outside window → wrong_action failure.
+    """
     config = default_config()
-    config.cue_onset_ms = 1000
     config.response_window_start_ms = 200
-    config.response_window_duration_ms = 300  # Window: [200, 500] ms
-    config.decision_point_ms = 400  # 1000 + 400 = 1400 ms absolute
-    # Trigger: decision at 1400 ms absolute (outside window [200, 500] ms).
-    # Outcome: oracle acts but is penalized (wrong_action on go trial).
-    run_go_nogo_trials(config, oracle_policy)
-    # This tests that the response window is enforced.
+    config.response_window_duration_ms = 300
+    config.decision_point_ms = 600  # After window end (window ends at 500)
+
+    # Test go trials: oracle acts, but outside window → wrong_action
+    config.go_probability = 1.0
+    config.n_trials = 10
+    trials = run_go_nogo_trials(config, oracle_policy)
+    for trial in trials:
+        assert trial.success is False
+        assert trial.failure_mode == "wrong_action"
+
+    # Test no-go trials: oracle does not act → correct_withhold
+    config.go_probability = 0.0
+    config.n_trials = 10
+    trials = run_go_nogo_trials(config, oracle_policy)
+    for trial in trials:
+        assert trial.success is True
+        assert trial.failure_mode is None
 
 
 # --- Test: Edge Cases ---
@@ -526,7 +587,7 @@ def test_engine_with_go_probability_one():
 # --- Test: Integration with Scorer ---
 
 
-def test_trials_are_scorable(tmp_path):
+def test_trials_are_scorable():
     """Test that returned trials can be scored without error."""
     from nrp_bga_sb.scorer import score_trials as score_function
 

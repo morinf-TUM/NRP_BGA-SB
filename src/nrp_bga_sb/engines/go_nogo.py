@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from nrp_bga_sb.logger import TrialLogger
-from nrp_bga_sb.schemas import ActionEvidence, BGDecision, EventType, TrialLog
+from nrp_bga_sb.schemas import ActionEvidence, BGDecision, EventType, TaskEvent, TrialLog
 
 # --- Configuration ---
 
@@ -39,7 +39,9 @@ class GoNoGoConfig:
         response_window_duration_ms: duration the response window is open (ms).
         fixation_duration_ms: time from trial start to fixation signal (ms).
         cue_onset_ms: time from fixation to cue onset (ms).
-        decision_point_ms: time at which policy is called and decision is made (ms).
+        decision_point_ms: offset from cue onset (in ms) at which the policy is called
+            and decision is made. All timing checks (e.g., response window validity)
+            use cue onset as the reference point (time 0).
         seed: random seed for trial generation.
     """
     n_trials: int
@@ -173,11 +175,15 @@ def run_go_nogo_trials(
         # --- Classify trial outcome ---
         _classify_trial(config, state)
 
-        # --- Emit movement_end and trial_end ---
-        movement_end_ms = config.decision_point_ms + 100  # Dummy: 100 ms after decision
-        _record_event(trial_log, logger, EventType.movement_end, sim_time_ms=movement_end_ms)
+        # --- Emit movement_end only if response was made, and trial_end ---
+        if responded:
+            movement_end_ms = config.decision_point_ms + 100  # Dummy: 100 ms after decision
+            _record_event(trial_log, logger, EventType.movement_end, sim_time_ms=movement_end_ms)
+            trial_end_ms = movement_end_ms + 50  # Dummy: 50 ms after movement_end
+        else:
+            # No response: movement_end not emitted; trial_end follows decision_commit
+            trial_end_ms = config.decision_point_ms + 50  # Dummy: 50 ms after decision
 
-        trial_end_ms = movement_end_ms + 50  # Dummy: 50 ms after movement_end
         _record_event(trial_log, logger, EventType.trial_end, sim_time_ms=trial_end_ms)
 
         # --- Save trial ---
@@ -208,7 +214,6 @@ def _record_event(
     if logger:
         logger.record_event(trial_log, event_type, sim_time, real_time)
     else:
-        from nrp_bga_sb.schemas import TaskEvent
         event = TaskEvent(
             event_type=event_type,
             sim_time=sim_time,
