@@ -13,6 +13,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 2 complete (2026-06-19).** BG model wrapper and isolated validation. M2 acceptance criterion verified: BGAdapter selects correctly under salience manipulation (low and medium conflict); selection latency is strictly monotone with conflict; 271 tests passing.
 - **Phase 3 complete (2026-06-19).** Frequency-intervention layer. M3 acceptance criterion verified: four frequency variables independently configurable; ablation identifies primary variable with evidence; 349 tests passing, ruff clean. See §19 for module map and §5.1 for M3 finding.
 - **Phase 4 complete (2026-06-19).** Full abstract closed loop: cortical evidence generator → BG → thalamic gate → motor command. M4-prep acceptance criterion verified: BG-frequency manipulation propagates to abstract motor output (5 Hz → all go trials miss; 40 Hz → all succeed); trial logs remain valid across all four paradigms; 422 tests passing, ruff clean. See §20 for module map.
+- **Phase 5 complete (2026-06-19).** Frequency-sweep experiment and abstract embodiment (M4 milestone). Switch_* post-switch evidence direction fixed in CortexEvidenceGenerator; sweep module (`SweepConditionResult`, `run_condition`) and stats module (`bootstrap_ci`, `aggregate_by_frequency`, `fit_frequency_slope`, `format_sweep_report`) implemented; frequency_sweep.py runs 900 conditions and saves results; ablation_frequency_v2.py re-runs the Phase 3 ablation with ClosedLoopPolicy. Key empirical finding: GPR selection threshold ≈ 0.607; at 5 Hz all four BG frequency knobs share the same miss boundary (period=200 ticks = accumulation window). 499 tests passing, ruff clean. See §21 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -680,3 +681,72 @@ The key mechanism that makes BG-frequency effects observable (resolving the Phas
 - **go_nogo and stop_signal BGAdapter constraint resolved**: go trials now succeed with BGAdapter because directed cortical evidence is generated from `cue_identity="go"`. No-go and stop trials correctly withhold (neutral salience → BG returns -1).
 - **Ablation should now be re-run**: Phase 4 time-varying evidence makes individual frequency knobs dissociable (see §5.1 and §19.6). The Phase 3 null result no longer applies.
 - **Thalamic delay is zero**: `thalamic_relay_time == thalamic_release_time` in the abstract model. A non-zero thalamic delay can be added via `LatencyWrapper` from Phase 3 perturbations.py.
+
+## 21. Phase 5 module map (stable as of 2026-06-19)
+
+### 21.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    cortex.py       — MODIFIED: post-switch evidence reversal for switch_* cues (Task 5.0)
+    sweep.py        — SweepConditionResult, run_condition, CONFLICT_PEAK_SALIENCE (Task 5.1)
+    stats.py        — bootstrap_ci, aggregate_by_frequency, fit_frequency_slope,
+                      reproducibility_check, format_sweep_report (Task 5.2)
+
+experiments/
+    frequency_sweep.py      — 900-condition runner: 5×3×2×30 (Task 5.3)
+    ablation_frequency_v2.py — per-knob ablation with ClosedLoopPolicy (Task 5.4)
+
+tests/
+    test_cortex.py              — EXTENDED: 4 regression tests for switch_* reversal
+    test_sweep.py               — 15 tests: conflict calibration, run_condition, metrics
+    test_stats.py               — 19 tests: bootstrap CI, aggregation, slopes, repro check
+    test_frequency_sweep.py     — 13 tests: constants, save_results, run_sweep count
+    test_ablation_frequency_v2.py — 26 tests: structural, threshold, parametrized, JSON
+
+results/                  — generated output (git-ignored)
+    frequency_sweep_results.json
+    ablation_frequency_v2.json
+```
+
+### 21.2 Switch_* post-switch evidence fix (Task 5.0)
+
+- **Problem**: `CortexEvidenceGenerator` is stateless; `switch_*` cues always mapped to channel 0 even after the engine crossed the switch point.
+- **Fix**: scan `trial_log.events` for `EventType.evidence_change` inside `__call__`. If found and `cue_identity.startswith("switch_")`, flip `preferred` from 0 → 1.
+- **Constraint**: the fix relies on the change_of_mind engine logging `evidence_change` before the second policy call; this is the only intra-trial state available to a stateless generator.
+
+### 21.3 Sweep module design (Task 5.1)
+
+- **`CONFLICT_PEAK_SALIENCE`**: calibrated to GPR selection threshold ≈ 0.607 (empirically verified):
+  - `"low"`: 0.85 — selects at all tested frequencies (10–160 Hz)
+  - `"medium"`: 0.69 — tick-100 salience=0.595 < threshold → miss at 10 Hz; tick-150 salience=0.6425 > threshold → selects at 20+ Hz
+  - `"high"`: 0.62 — misses at 10, 20, 40 Hz; tick-192 (80 Hz) salience=0.6152 > threshold → selects at 80+ Hz
+- **Salience formula**: `s(t) = 0.5 + (peak − 0.5) × min(1.0, t / rise_time_ms)`, with `rise_time_ms=200`, `accumulation_ms=200` (200 ticks).
+- **`run_condition`**: wraps `GoNoGoEngine` or `TwoChoiceEngine` with `ClosedLoopPolicy`; computes `SweepConditionResult` with miss_rate, go_success_rate, wrong_target_rate, false_alarm_rate, timeout_rate, and BG commitment latency stats.
+
+### 21.4 Stats module design (Task 5.2)
+
+- **`bootstrap_ci(values, n_bootstrap=2000, alpha=0.05, rng_seed=42)`**: vectorised percentile bootstrap, pure numpy. Raises `ValueError` on empty input. `rng_seed` guarantees determinism.
+- **`aggregate_by_frequency(results, metric, paradigm=None, conflict_level=None)`**: groups by `frequency_hz`, returns `{freq: {mean, ci_lo, ci_hi, n}}`. Uses `getattr(r, metric)` — raises `AttributeError` for unknown metric names (fail-fast).
+- **`fit_frequency_slope(curves)`**: OLS slope of metric ~ log(frequency_hz) (natural log). Returns 0.0 for <2 frequency points. Positive slope = metric rises with frequency.
+- **`format_sweep_report(results, frequencies, conflict_levels)`**: iterates over provided `frequencies` list (skipping those absent in data) to guarantee caller-controlled ordering.
+
+### 21.5 Frequency sweep experiment (Task 5.3)
+
+- **Design**: 5 frequencies × 3 conflict levels × 2 paradigms × 30 seeds = 900 conditions; 30 trials each.
+- **Output**: `results/frequency_sweep_results.json` (JSON array of `SweepConditionResult.model_dump()`); formatted report with 95% CIs and log-frequency slopes printed to stdout.
+- **Reproducibility**: a 2-freq × 3-conflict × 2-paradigm × 3-seed subset (36 condition pairs) is re-run and compared via `reproducibility_check`.
+
+### 21.6 Ablation experiment — empirical finding (Task 5.4)
+
+- **Design**: hold 3 of the 4 BG frequency knobs at 160 Hz, sweep the 4th over {5, 10, 20, 40, 80, 160} Hz; go_nogo, low conflict (`peak_salience=0.85`), 50 trials, seed=42.
+- **Expected (pre-run)**: `input_sampling_hz` is the primary variable; secondary knobs flat.
+- **Empirical finding**: all four knobs share the same 5/10 Hz selection boundary. At 5 Hz, `period_ticks = 200 = accumulation_ms`, so every gate fires exactly once at tick 0 (neutral evidence), making any single knob sufficient to block BG selection.
+- **Interpretation**: `input_sampling_hz` is the mechanistic upstream bottleneck (it gates which cortical state enters the BG). The other three knobs are downstream but equally rate-limiting at 5 Hz because the pipeline serializes their effects. At ≥ 10 Hz the distinction between primary and secondary knobs becomes irrelevant (all produce clean selection).
+
+### 21.7 M4 milestone acceptance (Phase 5)
+
+- Frequency-response curves produced with bootstrap CIs: ✓
+- Three-level conflict × frequency interaction observable: ✓ (low selects everywhere; medium 10 Hz boundary; high 80 Hz boundary)
+- Switch_* post-switch evidence direction correct: ✓ (4 regression tests)
+- 499 tests passing (77 new in Phase 5); ruff clean.
