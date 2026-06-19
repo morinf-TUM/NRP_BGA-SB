@@ -10,6 +10,7 @@ This file is the primary source of truth for project context. It is derived from
 
 - **Phase 0 complete (2026-06-19).** Source tree, schemas, trial logger, replay, and scorer are implemented and reviewed. M0 acceptance criterion verified: synthetic trials replay exactly from logs; scorer emits metrics without any neural module.
 - **Phase 1 complete (2026-06-19).** All six tasks complete: four task engines, three reference policies, cue generator. M1 acceptance criterion verified: all four paradigms produce valid `TrialLog`s and `Metrics` under each of the three reference policies (212 tests passing).
+- **Phase 2 complete (2026-06-19).** BG model wrapper and isolated validation. M2 acceptance criterion verified: BGAdapter selects correctly under salience manipulation (low and medium conflict); selection latency is strictly monotone with conflict; 271 tests passing.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -440,3 +441,69 @@ M1 acceptance: `test_m1_cartesian_product` in `test_policies.py` runs all 4 engi
 - Phase 1: only the `seed` field is updated. Phase 5+ will inject per-trial seeds directly.
 
 Scientific purpose: ensures the same cue sequence is presented under every BG-frequency condition, making per-trial causal comparisons valid.
+
+---
+
+## 18. Phase 2 module map (stable as of 2026-06-19)
+
+### 18.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    bg_model.py         — BGModelConfig, BGModel, BGAdapter (Tasks 2.1–2.4)
+
+tests/
+    test_bg_model.py    — 59 tests: selection, suppression, latency, wiring, M2 acceptance
+```
+
+### 18.2 BG model selection (Task 2.1)
+
+**Chosen model:** Gurney-Prescott-Redgrave (GPR) 2001, rate-coded steady-state variant.  
+**Reference:** Gurney K, Prescott TJ, Redgrave P. Biological Cybernetics 84(3), 2001. ModelDB 83560.  
+**Rationale:** Minimal model that implements direct/indirect/hyperdirect pathways; analytically tractable for parameter tuning; consistent with §10 literature anchors.  
+**Implementation note:** Python re-implementation of the rate equations; the original ModelDB MATLAB code is a reference only — not executed.
+
+### 18.3 BGModel internals (Task 2.2)
+
+Jacobi fixed-point iteration over five nuclei per channel i (N channels total):
+
+| Equation | Description |
+|---|---|
+| `D1_i = max(0, u_i − theta_d)` | Direct pathway striatum |
+| `D2_i = max(0, u_i − theta_d)` | Indirect pathway striatum |
+| `STN_i = max(0, u_i − w_gpe_stn·GPe_i + stn_offset)` | STN: cortical input, GPe feedback |
+| `GPe_i = max(0, w_stn_gpe·STN_i − w_d2_gpe·D2_i + gpe_offset)` | GPe: STN excitation, D2 inhibition |
+| `GPi_i = max(0, w_stn_gpi·mean(STN) − w_d1_gpi·D1_i + gpi_offset)` | GPi: blanket suppression, D1 release |
+| `T_i = max(0, thal_threshold − GPi_i)` | Thalamus output; > 0 = selected |
+
+**Selection:** `argmax(T)`; −1 if `max(T) = 0`.
+
+Key parameter choice: `w_stn_gpi = 0.7` (STN mean → GPi weight). Calibrated so that:
+- Low conflict `[0.8, 0.2]` → channel 0 selected (T_winner ≈ 0.194)
+- Medium conflict `[0.65, 0.35]` → channel 0 selected (T_winner ≈ 0.044)
+- High conflict `[0.55, 0.45]` → no selection (T_winner = 0)
+
+Mean STN (not sum) used for GPi excitation to make selection scale-invariant with N.
+
+### 18.4 BGAdapter conventions (Task 2.2)
+
+- **Policy interface:** `(trial_log: TrialLog, action_evidence: ActionEvidence) → BGDecision` — identical to Phase 1 policies; drop-in compatible with all four task engines.
+- **Stop signal:** `stop_signal_present=True` returns `selected_channel=−1` without invoking BGModel (hyperdirect circuit deferred to Phase 3).
+- **Selection latency formula:**
+  - `selected_channel ≥ 0`: `latency_s = (latency_min_ms + latency_scale_ms / (T_winner + latency_eps)) / 1000`
+  - `selected_channel = −1`: `latency_s = latency_max_ms / 1000`
+  - Default values produce latency range: low conflict ≈ 13 ms, medium ≈ 26 ms, no-select = 100 ms.
+- **Noise:** optional Gaussian perturbation on input saliences; RNG seeded from `trial_log.seed` for reproducibility.
+
+### 18.5 M2 acceptance (verified 2026-06-19)
+
+- BG selects correctly under salience manipulation: low conflict → correct channel; medium conflict → correct channel; high conflict → no selection (indecision).
+- Selection latency strictly monotone with conflict: low < medium < high.
+- BGAdapter wires into `two_choice` and `change_of_mind` engines without modification; both produce valid `TrialLog`s with non-decreasing `sim_time`.
+- 271 tests passing (59 new in Phase 2).
+
+### 18.6 Known constraints at Phase 2
+
+- **go_nogo and stop_signal** use `channel_salience = [0.5, 0.5]` (neutral), which produces `selected_channel = −1` with BGAdapter (BG cannot decide without directional evidence). These engines need updated salience encoding to work with the BG model; deferred to Phase 4 (cortex evidence generator).
+- **Hyperdirect pathway** (rapid STN boost on stop signal) is not modelled; stop signal is a policy-level override. Phase 3 may add this.
+- **Latency proxy is analytic** (derived from T_winner), not a dynamic simulation of settling time. A full ODE-based latency model is deferred to Phase 3.
