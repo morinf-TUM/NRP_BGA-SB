@@ -8,12 +8,15 @@ Methodology: vary ONE frequency knob at a time while holding the other three at
 accumulation=200ms) to expose input_sampling_hz as the primary variable.
 
 Expected finding (Phase 3 null result now resolved by Phase 4 time-varying cortex):
-  - input_sampling_hz sweep: 5 Hz → all go trials miss (BG sees only neutral
-    evidence at tick 0); ≥10 Hz → go trials succeed (BG reads evidence at
-    tick 100 where ramp has risen above the selection threshold).
-  - Other knobs: flat (identical miss_rate across frequencies), because
-    input_sampling_hz is fixed at 160 Hz so the BG always reads high-quality
-    cortical evidence regardless of how other gates are gated.
+  - All four knobs share the same 5/10 Hz selection boundary:
+      5 Hz → miss_rate ≈ 1.0 (period_ticks=200 equals the accumulation window,
+             so every gate fires only once at tick 0 where the ramp is neutral).
+      ≥10 Hz → miss_rate ≈ 0.0 (gate fires before the window closes, BG reads
+              risen evidence above the selection threshold).
+  - input_sampling_hz is the mechanistic upstream variable: it controls when
+    CortexEvidenceGenerator is sampled. The other three knobs (integration_step_hz,
+    output_emission_hz, commitment_update_hz) are downstream, but at 5 Hz they are
+    equally starved by the period=200-tick bottleneck and show the same miss pattern.
 
 Also includes a "baseline" condition where all knobs are at 160 Hz.
 
@@ -192,8 +195,8 @@ def _format_table(records: list[dict]) -> str:
         f"  Go/no-go: n_trials={N_TRIALS}, seed={SEED}, go_probability={GO_PROBABILITY}",
         f"  Accumulation window: {ACCUMULATION_MS:.0f} ms",
         "",
-        "Expected: input_sampling_hz is primary variable (non-flat miss_rate).",
-        "          Other knobs are secondary (flat ≈ 0.0 miss_rate).",
+        "Expected: all four knobs share the 5/10 Hz boundary (miss≈1.0 at 5 Hz, ≈0.0 at ≥10 Hz).",
+        "          input_sampling_hz is mechanistic upstream; others equally starved at 5 Hz.",
         "",
     ]
 
@@ -220,9 +223,11 @@ def _format_table(records: list[dict]) -> str:
 
     lines.append(
         "Primary variable: input_sampling_hz\n"
-        "Rationale: only input_sampling_hz controls when CortexEvidenceGenerator\n"
-        "is sampled; other gates operate on already-sampled evidence and do not\n"
-        "change which cortical state the BG reads."
+        "Rationale: input_sampling_hz controls when CortexEvidenceGenerator is sampled;\n"
+        "other gates are downstream. However, at 5 Hz all four knobs share the same\n"
+        "miss_rate ≈ 1.0 boundary: period_ticks=200 equals the accumulation window,\n"
+        "so every gate fires only once at tick 0 (neutral evidence). At ≥10 Hz all\n"
+        "knobs succeed (miss_rate ≈ 0.0)."
     )
     return "\n".join(lines)
 

@@ -179,3 +179,14 @@ def test_format_sweep_report_returns_string():
     assert isinstance(report, str)
     assert "go_nogo" in report
     assert "two_choice" in report
+
+
+# --- fail-fast metric access ---
+
+
+def test_aggregate_by_frequency_invalid_metric_raises():
+    """Unknown metric name must raise AttributeError, not return empty dict silently."""
+    from nrp_bga_sb.sweep import run_condition
+    result = run_condition(40.0, "low", "go_nogo", n_trials=10, seed=0)
+    with pytest.raises(AttributeError):
+        aggregate_by_frequency([result], "nonexistent_field")

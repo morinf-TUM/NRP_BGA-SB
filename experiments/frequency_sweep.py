@@ -36,7 +36,7 @@ N_SEEDS: int = 30
 N_TRIALS: int = 30
 
 # Reproducibility check uses a small subset to keep runtime reasonable.
-# Trigger: full re-run of 900 conditions is expensive; 2×2×3 = 12 pairs is enough
+# Trigger: full re-run of 900 conditions is expensive; 2×3×3×2 = 36 pairs is enough
 #   to detect mutable state or broken RNG seeding.
 # Why: determinism is a hard requirement; any mutable state in policy or engine
 #   components would surface here.

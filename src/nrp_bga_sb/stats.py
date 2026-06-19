@@ -58,7 +58,7 @@ def aggregate_by_frequency(
 
     freq_groups: dict[float, list[float]] = {}
     for r in filtered:
-        val = getattr(r, metric, None)
+        val = getattr(r, metric)  # AttributeError for unknown metric names — fail-fast
         if val is not None:
             freq_groups.setdefault(r.frequency_hz, []).append(float(val))
 
