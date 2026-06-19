@@ -9,7 +9,7 @@ This file is the primary source of truth for project context. It is derived from
 ## 1. Current state
 
 - **Phase 0 complete (2026-06-19).** Source tree, schemas, trial logger, replay, and scorer are implemented and reviewed. M0 acceptance criterion verified: synthetic trials replay exactly from logs; scorer emits metrics without any neural module.
-- **Phase 1 in progress (2026-06-19).** All four task engines complete (Tasks 1.1–1.4). Tasks 1.5 (reference policies) and 1.6 (cue generator) pending.
+- **Phase 1 complete (2026-06-19).** All six tasks complete: four task engines, three reference policies, cue generator. M1 acceptance criterion verified: all four paradigms produce valid `TrialLog`s and `Metrics` under each of the three reference policies (212 tests passing).
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -351,7 +351,7 @@ Split into sub-modules only when a Phase explicitly requires it.
 
 ---
 
-## 17. Phase 1 engine map (in progress as of 2026-06-19)
+## 17. Phase 1 module map (complete as of 2026-06-19)
 
 ### 17.1 Source layout additions
 
@@ -363,11 +363,17 @@ src/nrp_bga_sb/engines/
     stop_signal.py      — StopSignalConfig, StaircaseState, run_stop_signal_trials (Task 1.3)
     change_of_mind.py   — ChangeOfMindConfig, run_change_of_mind_trials (Task 1.4)
 
+src/nrp_bga_sb/
+    policies.py         — oracle_policy, RandomPolicy, ThresholdPolicy (Task 1.5)
+    cue_generator.py    — CueSequence, generate_cue_sequence, shared_seed_configs (Task 1.6)
+
 tests/
     test_engine_gonogo.py       — 33 tests (Task 1.1)
-    test_engine_twochoice.py    — 30 tests (Task 1.2)
-    test_engine_stopsignal.py   — 32 tests (Task 1.3)
+    test_engine_twochoice.py    — 37 tests (Task 1.2)
+    test_engine_stopsignal.py   — 31 tests (Task 1.3)
     test_engine_changeofmind.py — 21 tests (Task 1.4)
+    test_policies.py            — 21 tests + M1 4×3 integration test (Task 1.5)
+    test_cue_generator.py       — 21 tests (Task 1.6)
 ```
 
 ### 17.2 Shared engine conventions (all four engines)
@@ -406,8 +412,31 @@ tests/
 - Outcomes: correct_switch (post-switch ch1), perseveration (post-switch ch0), miss (post-switch -1).
 - No-switch baseline trials: single call, standard go outcome.
 
-### 17.4 Scorer extension (Task 1.4)
+### 17.4 Scorer extensions (Tasks 1.4, final review)
 
-`scorer.score_trials` now computes `switch_success_rate` in addition to existing metrics:
-- Identifies switch trials by presence of `evidence_change` event.
-- Rate = (trials with success=True) / (all switch trials); None if no switch trials present.
+`scorer.score_trials` additions beyond Phase 0:
+- **`switch_success_rate`** (Task 1.4): fraction of switch trials (identified by `evidence_change` event) where `success=True`; `None` if no switch trials present.
+- **`wrong_target_rate`** (final review fix): fraction of trials with `failure_mode == "wrong_target"` (two_choice engine). Always 0.0 for engines that do not use this failure mode — not `None`. Distinct from `wrong_action_rate` (go_nogo engine's `failure_mode == "wrong_action"`).
+
+### 17.5 Reference policies (Task 1.5)
+
+All three policies share the signature `(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDecision`.
+
+- **`oracle_policy`** (function): selects `argmax(channel_salience)`; returns -1 if `stop_signal_present=True` or `max(channel_salience) < 0.3`. Decision margin = difference between top-two saliences (0.0 if fewer than 2 channels).
+- **`RandomPolicy`** (class): seeds `random.Random(trial_log.seed)` on each call; picks uniformly among channel 0, channel 1, or -1. Deterministic: same `trial_log.seed` → same response.
+- **`ThresholdPolicy`** (class, configurable `threshold=0.6`): selects `argmax` if `max(channel_salience) >= threshold`; otherwise -1. `stop_signal_present=True` overrides to -1 before threshold check.
+
+M1 acceptance: `test_m1_cartesian_product` in `test_policies.py` runs all 4 engines × 3 policies (20 trials each), asserts non-empty event streams, valid `Metrics`, and non-decreasing `sim_time` event ordering.
+
+### 17.6 Cue generator (Task 1.6)
+
+`generate_cue_sequence(master_seed, task_type, n_trials) → CueSequence`
+- Deterministic and process-stable: uses `hashlib.sha256(f"{master_seed}:{task_type}")` as RNG seed — never Python's `hash()` which is PYTHONHASHSEED-dependent.
+- Different task types with the same master seed produce different sequences (salt includes task_type).
+- `CueSequence` is a frozen Pydantic v2 model with `task_type: Literal[...]` validation.
+
+`shared_seed_configs(cue_seq, base_config, bg_frequencies_hz) → list`
+- Returns one copy of `base_config` per frequency, each with `seed = cue_seq.master_seed`.
+- Phase 1: only the `seed` field is updated. Phase 5+ will inject per-trial seeds directly.
+
+Scientific purpose: ensures the same cue sequence is presented under every BG-frequency condition, making per-trial causal comparisons valid.
