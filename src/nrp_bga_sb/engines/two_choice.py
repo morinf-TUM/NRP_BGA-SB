@@ -53,7 +53,7 @@ class TwoChoiceConfig:
         response_window_start_ms: delay from target onset to response window opening (ms).
         response_window_duration_ms: duration the response window is open (ms).
         fixation_duration_ms: time from trial start to fixation signal (ms).
-        target_onset_ms: time from fixation to target onset (ms).
+        target_onset_ms: time from trial start to target onset (ms).
         decision_point_ms: offset from target onset (in ms) at which the policy is called
             and decision is made. All timing checks (e.g., response window validity)
             use target onset as the reference point (time 0).

@@ -142,20 +142,37 @@ def test_trial_seeds_are_deterministic():
 
 
 def test_conflict_levels_cycle_round_robin():
-    """Test that conflict levels are assigned in round-robin fashion."""
-    config = default_config()
-    config.n_trials = 12
-    config.conflict_levels = {"low": [0.8, 0.2], "medium": [0.65, 0.35], "high": [0.55, 0.45]}
-    trials = run_two_choice_trials(config, oracle_policy)
+    """Test that conflict levels are assigned in round-robin fashion.
 
-    # Extract conflict level from each trial via cue_identity logic or direct inspection
-    # Since we don't track conflict_level in TrialLog, we infer from salience values
-    # Instead, we verify that targets are distributed consistently with 3 levels across 12 trials
-    assert len(trials) == 12
-    # Each trial should have two targets (target_on_left and target_on_right)
-    for trial in trials:
-        target_events = [e for e in trial.events if e.event_type in (EventType.target_on_left, EventType.target_on_right)]
-        assert len(target_events) == 2, "Each trial should have both target_on_left and target_on_right"
+    Captures the salience values sent to the policy on each trial and verifies
+    that they cycle through the configured conflict levels in order.
+    """
+    saliences_seen = []
+
+    def recording_policy(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDecision:
+        # Record the salience pair (as frozenset to ignore order)
+        saliences_seen.append(frozenset(action_evidence.channel_salience))
+        return oracle_policy(trial_log, action_evidence)
+
+    config = default_config()
+    config.n_trials = 6  # 2 full cycles through 3 levels
+    config.conflict_levels = {"low": [0.8, 0.2], "medium": [0.65, 0.35], "hard": [0.55, 0.45]}
+    run_two_choice_trials(config, recording_policy)
+
+    # Expected salience sets (as frozensets) cycling through the levels
+    expected_sets = [
+        frozenset([0.8, 0.2]),      # trial 0: low
+        frozenset([0.65, 0.35]),    # trial 1: medium
+        frozenset([0.55, 0.45]),    # trial 2: hard
+        frozenset([0.8, 0.2]),      # trial 3: low (cycle repeats)
+        frozenset([0.65, 0.35]),    # trial 4: medium
+        frozenset([0.55, 0.45]),    # trial 5: hard
+    ]
+
+    assert len(saliences_seen) == 6, f"Expected 6 trials, got {len(saliences_seen)}"
+    for i, (actual, expected) in enumerate(zip(saliences_seen, expected_sets)):
+        assert actual == expected, \
+            f"Trial {i}: expected salience set {expected}, got {actual}"
 
 
 def test_conflict_levels_in_config():
