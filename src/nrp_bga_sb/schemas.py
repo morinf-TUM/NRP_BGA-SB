@@ -61,12 +61,18 @@ class ActionEvidence(BaseModel):
 
     Invariant: len(channel_salience) == n_channels.
     Enforced at construction time to catch mismatches at the system boundary.
+
+    stop_signal_present: True when a stop signal has already arrived before
+    the current decision point (stop-signal task only; False for all other tasks).
+    This flag surfaces the stop_signal event from trial_log.events in a form
+    the policy can act on without scanning the event list.
     """
 
     sim_time: float
     trial_id: int
     n_channels: int                 # number of action channels
     channel_salience: list[float]   # per-channel salience, len == n_channels
+    stop_signal_present: bool = False  # True only on stop trials where SSD < decision_point
 
     @model_validator(mode="after")
     def _check_salience_length(self) -> ActionEvidence:
