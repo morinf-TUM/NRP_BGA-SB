@@ -2,9 +2,21 @@
 
 import pytest
 
-from nrp_bga_sb.logger import TrialLogger
-from nrp_bga_sb.schemas import EventType, Metrics, TrialLog
+from nrp_bga_sb.schemas import EventType, Metrics, TaskEvent, TrialLog
 from nrp_bga_sb.scorer import score_trials
+
+
+def _append_event(trial: TrialLog, event_type: EventType, sim_time: float) -> None:
+    """Append a TaskEvent directly to trial.events without routing through TrialLogger."""
+    trial.events.append(
+        TaskEvent(
+            event_type=event_type,
+            sim_time=sim_time,
+            real_time=0.0,
+            trial_id=trial.trial_id,
+            payload={},
+        )
+    )
 
 
 def make_trial(
@@ -34,16 +46,8 @@ def make_trial(
         failure_mode=failure_mode,
     )
 
-    # Add events to the trial
     for event_type in events:
-        trial.events.append(
-            TrialLogger(None).record_event(
-                trial,
-                event_type=event_type,
-                sim_time=cue_onset_time,
-                real_time=0.0,
-            )
-        )
+        _append_event(trial, event_type, sim_time=cue_onset_time)
 
     return trial
 

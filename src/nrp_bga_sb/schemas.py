@@ -8,9 +8,9 @@ lossless JSON round-trips via model_dump_json / model_validate_json.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # --- EventType Enum ---
 
@@ -95,7 +95,7 @@ class BGDecision(BaseModel):
 
     sim_time: float
     trial_id: int
-    selected_channel: int            # -1 if no channel selected
+    selected_channel: int = Field(ge=-1)  # -1 if no channel selected
     decision_margin: float           # salience gap between top-1 and top-2
     suppression_vector: list[float]  # suppression applied to each channel
     channel_activations: list[float] # raw BG output activations per channel
@@ -115,7 +115,7 @@ class MotorCommand(BaseModel):
     sim_time: float
     trial_id: int
     command: list[float]   # descending motor command vector
-    gate_state: str        # "open" | "closed" | "partial"
+    gate_state: Literal["open", "closed", "partial"]
     gate_gain: float       # gate modulation factor in [0.0, 1.0]
 
     @field_validator("gate_gain")
@@ -152,7 +152,7 @@ class TrialLog(BaseModel):
     # --- Identity ---
     trial_id: int
     seed: int
-    task_type: str    # "go_nogo" | "two_choice" | "stop_signal" | "change_of_mind"
+    task_type: Literal["go_nogo", "two_choice", "stop_signal", "change_of_mind"]
     cue_identity: str
     cue_onset_time: float
 

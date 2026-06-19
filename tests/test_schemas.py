@@ -246,6 +246,51 @@ def test_trial_log_minimal_construction():
     assert log.events == []
 
 
+def test_motor_command_gate_state_invalid():
+    # Trigger: gate_state is not one of the three allowed literals.
+    # Why: Literal["open","closed","partial"] rejects anything else at construction.
+    # Outcome: ValidationError raised; caller must use a valid gate state string.
+    with pytest.raises(ValidationError):
+        MotorCommand(
+            sim_time=0.0,
+            trial_id=1,
+            command=[1.0],
+            gate_state="invalid",
+            gate_gain=0.5,
+        )
+
+
+def test_trial_log_task_type_invalid():
+    # Trigger: task_type is not one of the four allowed literal values.
+    # Why: Literal constraint rejects unknown task types at construction.
+    # Outcome: ValidationError raised; caller must use a declared task type.
+    with pytest.raises(ValidationError):
+        TrialLog(
+            trial_id=1,
+            seed=42,
+            task_type="invalid_type",
+            cue_identity="go",
+            cue_onset_time=0.0,
+        )
+
+
+def test_bg_decision_selected_channel_below_minus_one():
+    # Trigger: selected_channel < -1.
+    # Why: -1 is the sentinel for "no channel selected"; anything lower is
+    #      not a valid channel index and indicates a model error.
+    # Outcome: ValidationError raised; caller must fix the BG output.
+    with pytest.raises(ValidationError):
+        BGDecision(
+            sim_time=0.1,
+            trial_id=1,
+            selected_channel=-2,
+            decision_margin=0.0,
+            suppression_vector=[],
+            channel_activations=[],
+            selection_latency=0.0,
+        )
+
+
 # --- 5. EventType enum ---
 
 
