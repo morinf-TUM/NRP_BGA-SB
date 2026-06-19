@@ -8,8 +8,7 @@ This file is the primary source of truth for project context. It is derived from
 
 ## 1. Current state
 
-- Repository is greenfield: only specification documents exist at the time of writing (2026-06-19).
-- No source tree, no dependencies declared, no build system configured.
+- **Phase 0 complete (2026-06-19).** Source tree, schemas, trial logger, replay, and scorer are implemented and reviewed. M0 acceptance criterion verified: synthetic trials replay exactly from logs; scorer emits metrics without any neural module.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -283,3 +282,68 @@ Whenever any of these is flipped, update §15.1 with the new preset / commit, an
   - whether TFs can introduce per-step delays without breaking the synchronization invariants the FTILoop relies on;
   - whether two engines on the same `dt` but with deliberately offset start times can coexist (the "phase offset" perturbation in §5).
 - **Unknown until tried:** the JSON DataPack path's overhead at high frequencies (160 Hz × multiple engines) — this is what would force a migration to gRPC or protobuf DataPacks.
+
+---
+
+## 16. Phase 0 module map (stable as of 2026-06-19)
+
+### 16.1 Source layout
+
+```
+src/nrp_bga_sb/
+    __init__.py        — package root; docstring only
+    schemas.py         — all six Pydantic v2 schemas + EventType enum
+    logger.py          — TrialLogger (open_trial / record_event / save_trial → JSONL)
+    replay.py          — load_trials / replay_events (JSONL → list[TrialLog])
+    scorer.py          — score_trials (list[TrialLog] → Metrics)
+
+tests/
+    test_imports.py    — pydantic + numpy importability smoke tests
+    test_schemas.py    — schema construction, validation, JSON round-trip (20 tests)
+    test_logger.py     — TrialLogger open/record/save/append (8 tests)
+    test_replay.py     — load_trials/replay_events round-trip, ordering (8 tests)
+    test_scorer.py     — RT, wrong-action, false-alarm, edge cases (10 tests)
+
+experiments/           — empty; experiment runner scripts go here (Phase 5)
+data/                  — gitignored except .gitkeep; generated JSONL goes here
+notebooks/             — empty; analysis notebooks go here
+.github/workflows/ci.yml — lint (ruff) + format-check + pytest on ubuntu-22.04/python 3.10
+```
+
+### 16.2 Data flow (Phase 0)
+
+```
+task engine (Phase 1)
+    │  open_trial(trial_id, seed, task_type, cue_identity, cue_onset_time)
+    │  record_event(log, event_type, sim_time, real_time, payload)
+    ▼
+TrialLogger ──► .jsonl file (one TrialLog JSON per line)
+                    │
+                    ▼  load_trials(path)
+                list[TrialLog]
+                    │
+                    ├──► replay_events(log) → Iterator[TaskEvent]   (sorted by sim_time)
+                    │
+                    └──► score_trials(trials, condition_id, bg_frequency_hz) → Metrics
+```
+
+### 16.3 Schema dependency order
+
+`EventType` → `TaskEvent` → `TrialLog` (nested)
+`MotorCommand` → `TrialLog` (nested)
+`ActionEvidence`, `BGDecision`, `Metrics` — standalone
+
+All six schemas plus `EventType` live in one file (`schemas.py`) for Phase 0.
+Split into sub-modules only when a Phase explicitly requires it.
+
+### 16.4 Conventions locked by Phase 0
+
+- **Pydantic v2** for all data classes. Use `model_dump_json` / `model_validate_json` (not v1 `.json()` / `.parse_raw()`).
+- **`X | None` union syntax** (not `Optional[X]`).
+- **`Literal[...]`** for constrained string fields (`gate_state`, `task_type`). Add `Literal` to new fields that have a fixed vocabulary.
+- **Fail fast:** `score_trials` raises `ValueError` on empty input. `load_trials` raises `FileNotFoundError` / `ValidationError` without silent fallbacks.
+- **JSONL** as the on-disk format for trial logs. One `TrialLog` JSON per line; parent directories created on write.
+- **Deterministic seeding:** the `seed` field in `TrialLog` is the single source of truth. Task engines construct `random.Random(seed)` from it — the logger never owns the rng.
+- **Tests use `tmp_path`** (pytest built-in) for all file I/O. No writes to permanent paths in tests.
+- **Section-header comments** (`# --- SectionName ---`) required in multi-section modules.
+- **Decision-point comments** (Trigger / Why / Outcome) required on validators and frequency-intervention control flow.
