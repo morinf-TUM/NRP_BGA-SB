@@ -12,6 +12,13 @@ This file is the primary source of truth for project context. It is derived from
 - No source tree, no dependencies declared, no build system configured.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
+### Language and build (Task 0.1, 2026-06-19)
+
+- **Language:** Python 3.10 (fixed by nrp-core host install; see §15.1)
+- **Dependency manager:** `pyproject.toml` (PEP 517/518; setuptools backend; no Poetry or Pipenv)
+- **Core runtime dependencies (Phase 0):** pydantic ≥ 2.0, numpy ≥ 1.26
+- **Dev dependencies:** pytest ≥ 8.0, ruff ≥ 0.4
+
 ## 2. Purpose and scope
 
 The project builds a **frequency-intervention testbed for the basal ganglia (BG)**, not a whole-brain demo. The minimal system answers:
