@@ -14,6 +14,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 3 complete (2026-06-19).** Frequency-intervention layer. M3 acceptance criterion verified: four frequency variables independently configurable; ablation identifies primary variable with evidence; 349 tests passing, ruff clean. See §19 for module map and §5.1 for M3 finding.
 - **Phase 4 complete (2026-06-19).** Full abstract closed loop: cortical evidence generator → BG → thalamic gate → motor command. M4-prep acceptance criterion verified: BG-frequency manipulation propagates to abstract motor output (5 Hz → all go trials miss; 40 Hz → all succeed); trial logs remain valid across all four paradigms; 422 tests passing, ruff clean. See §20 for module map.
 - **Phase 5 complete (2026-06-19).** Frequency-sweep experiment and abstract embodiment (M4 milestone). Switch_* post-switch evidence direction fixed in CortexEvidenceGenerator; sweep module (`SweepConditionResult`, `run_condition`) and stats module (`bootstrap_ci`, `aggregate_by_frequency`, `fit_frequency_slope`, `format_sweep_report`) implemented; frequency_sweep.py runs 900 conditions and saves results; ablation_frequency_v2.py re-runs the Phase 3 ablation with ClosedLoopPolicy. Key empirical finding: GPR selection threshold ≈ 0.607; at 5 Hz all four BG frequency knobs share the same miss boundary (period=200 ticks = accumulation window). 499 tests passing, ruff clean. See §21 for module map.
+- **Phase 6 complete (2026-06-20).** Kinematic reaching surrogate (M7, brought forward). `KinematicReacher` simulates 2D minimum-jerk trajectories from `ClosedLoopPolicy` motor commands; `compute_movement_metrics` extracts onset time, endpoint error, partial amplitude, curvature, reversal time, and peak velocity; `run_reacher_condition` augments Phase 5 sweep conditions with movement-level metrics; `experiments/kinematic_sweep.py` runs 150-condition sweep (5×3×2×5). Key findings: `movement_onset_rate` tracks `go_success_rate` within 0.001 across all conditions; thalamic margin threshold acts as a second selection gate (marginal BG decisions with margin < 0.05 produce engine "success" but no motor movement). Pre-merge fix: `ThalamusGate` boundary condition corrected (`< → <=` on `margin_threshold` so exact-boundary margin maps to "closed" not "partial" gate). 530 tests passing, ruff clean. See §22 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -750,3 +751,86 @@ results/                  — generated output (git-ignored)
 - Three-level conflict × frequency interaction observable: ✓ (low selects everywhere; medium 10 Hz boundary; high 80 Hz boundary)
 - Switch_* post-switch evidence direction correct: ✓ (4 regression tests)
 - 499 tests passing (77 new in Phase 5); ruff clean.
+
+---
+
+## 22. Phase 6 module map (stable as of 2026-06-20)
+
+### 22.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    reacher.py          — ReacherConfig, ReacherTrajectory, KinematicReacher,
+                          _minimum_jerk_scalar (Task 6.1)
+    movement_metrics.py — MovementMetrics, compute_movement_metrics (Task 6.2)
+    reacher_sweep.py    — ReacherConditionResult, run_reacher_condition (Task 6.3)
+    thalamus.py         — MODIFIED: boundary condition fix (< → <= on margin_threshold)
+
+experiments/
+    kinematic_sweep.py  — 150-condition reacher sweep: 5×3×2×5 (Task 6.3)
+
+tests/
+    test_reacher.py          — 15 tests: config validation, trajectory shape,
+                               gate states, onset timing, channel routing
+    test_movement_metrics.py — 9 tests: zero-movement, full/partial movement,
+                               curvature, peak velocity (min-jerk formula)
+    test_reacher_sweep.py    — 7 tests: result fields, frequency effects,
+                               onset_rate vs go_success_rate parity
+
+results/                  — generated output (git-ignored)
+    kinematic_sweep_results.json
+```
+
+### 22.2 KinematicReacher design (Task 6.1)
+
+- **Model**: 2D point-mass minimum-jerk trajectory. Formula: `s(τ) = 10τ³ − 15τ⁴ + 6τ⁵` where `τ = min(t / T, 1.0)`. Returns 0.5 at τ = 0.5 exactly.
+- **Input**: `motor_command_series` from `TrialLog` (one `MotorCommand` per `ClosedLoopPolicy` call). Uses the last command (final decision).
+- **Channel detection**: `int(np.argmax(command))` when `gate_state != "closed"`. `ThalamusGate` convention: `command[selected_channel] = gate_gain`, all others = 0.0.
+- **Endpoint scaling**: `effective_endpoint = gate_gain × target_positions[channel]`. Partial gate (gain < 1.0) → short-of-target movement.
+- **Fail fast**: raises `ValueError` if non-closed gate has all-zero command (wiring error guard).
+- **`onset_time_ms=None`**: defaults to 0.0 (no movement_onset event logged, e.g. miss trial already caught by gate_state="closed").
+
+### 22.3 MovementMetrics design (Task 6.2)
+
+| Metric | Definition | Phase 6 value |
+|---|---|---|
+| `movement_onset_time_ms` | `None` if no movement | `None` for misses |
+| `endpoint_error` | `‖final_pos − target‖` | 0.0 if no movement; `(1 − gate_gain) × ‖target‖` for partial |
+| `partial_movement_amplitude` | `‖final_pos‖` | `gate_gain × ‖target‖` |
+| `trajectory_curvature` | mean abs perpendicular deviation from origin→endpoint line | 0.0 (single-command straight-line) |
+| `movement_reversal_time_ms` | first projected-velocity sign flip | `None` (monotone min-jerk; Phase 8 will exercise) |
+| `peak_velocity` | max instantaneous speed | ≈ 1.875 × amplitude / T (min-jerk peak at τ=0.5) |
+
+### 22.4 ReacherConditionResult and run_reacher_condition (Task 6.3)
+
+- **`ReacherConditionResult`**: mirrors Phase 5 `SweepConditionResult` abstract metrics (`miss_rate`, `go_success_rate`, `timeout_rate`, `bg_commitment_latency_mean`) plus Phase 6 movement fields (`movement_onset_rate`, `mean_endpoint_error`, `mean_partial_amplitude`, `mean_peak_velocity`).
+- **`movement_onset_rate` denominator**: go trials only for `go_nogo` (to be comparable with `go_success_rate`); all trials for `two_choice`.
+- **`total_duration_ms = 1300.0`**: necessary because `movement_onset_time ≈ 700 ms` (cue_onset=400 + decision_point=300); 500 ms default would place all movement outside the simulation window.
+- **Engine config**: identical values to `sweep._run_engine` for cross-phase comparability.
+- **`CONFLICT_PEAK_SALIENCE`**: imported from `sweep`; no redefinition.
+
+### 22.5 Thalamus boundary fix (pre-merge fix, afc715a)
+
+- **Problem**: `ThalamusGate` used strict `< margin_threshold` for the "closed" gate condition. At the exact boundary (`margin == margin_threshold`), the code fell into the "partial" branch and computed `gate_gain = 0.0`, emitting `gate_state="partial"` with an all-zero command vector. The reacher's fail-fast guard (non-closed gate + all-zero command) would raise `ValueError`.
+- **Fix**: changed to `<= margin_threshold` so the boundary value maps to `gate_state="closed"` — semantically correct (margin at threshold is not enough to open the gate).
+- **Scope**: unreachable at current GPR parameters (exact float equality on 0.05 never occurs), but now consistent across the module boundary.
+
+### 22.6 Key empirical finding: thalamic second-gate effect
+
+- `movement_onset_rate` tracks `go_success_rate` within 0.001 across all conditions (confirmed in 150-condition sweep).
+- For marginal BG decisions (selection margin ∈ (0, margin_threshold)), the go_nogo engine records "success" (BG selected a channel) but `ThalamusGate` keeps the gate closed and no motor movement occurs. This is a real system behaviour, not a calibration error.
+- At current calibration (GPR threshold ≈ 0.607, default ThalamusGate thresholds 0.05/0.30), marginal selections are rare and don't affect the frequency-sweep conclusions.
+
+### 22.7 M7 milestone acceptance (Phase 6)
+
+- Movement-level metrics extracted automatically from ClosedLoopPolicy trials: ✓
+- `movement_onset_rate` ≈ `go_success_rate` within 0.001 across all frequency/conflict conditions: ✓
+- BG-frequency effects from Phase 5 survive at motor level (low freq → no movement; high freq → movement at partial amplitude): ✓
+- 530 tests passing (31 new in Phase 6); ruff clean.
+
+### 22.8 Known constraints at Phase 6
+
+- **Single-command trajectories only**: `KinematicReacher` uses `motor_commands[-1]` (last command). Change-of-mind trajectories (2 policy calls → 2 commands) will use only the final post-switch command. Multi-command trajectory simulation (initial movement + reversal) is deferred to Phase 8.
+- **`movement_reversal_time_ms` always `None`**: the reversal detection path is correct but never exercised in Phase 6 (all movements are monotone). Additionally, the reversal timestamp uses the end-of-interval sample rather than an interpolated zero-crossing — fix before Phase 8 when reversals become measurable.
+- **`trajectory_curvature` always `0.0`**: single-command straight-line movements have zero perpendicular deviation. Curvature becomes non-zero in Phase 8 when multi-command trajectories are simulated.
+- **Endpoint error reflects partial gate, not targeting error**: at typical BG margins (≈ 0.1–0.2), `ThalamusGate` produces partial gain (≈ 0.2–0.6), so `endpoint_error ≈ (1 − gain) × 1.0`. This is a gating-fidelity metric, not a spatial accuracy metric.
