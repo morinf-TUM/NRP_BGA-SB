@@ -12,6 +12,7 @@ The key guarantees:
 
 from __future__ import annotations
 
+import hashlib
 import random
 from typing import Literal
 
@@ -53,6 +54,23 @@ class CueSequence(BaseModel):
 # --- Cue sequence generation ---
 
 
+def _stable_salt(master_seed: int, task_type: str) -> int:
+    """Compute a process-stable seed salt from master_seed + task_type.
+
+    Why: Python's hash() randomizes string hashes via PYTHONHASHSEED, making
+    hash((seed, task_type)) non-reproducible across processes. sha256 is stable.
+
+    Args:
+        master_seed: the master seed integer.
+        task_type: the task type string.
+
+    Returns:
+        A 64-bit unsigned integer derived from sha256 of the concatenated input.
+    """
+    digest = hashlib.sha256(f"{master_seed}:{task_type}".encode()).hexdigest()
+    return int(digest, 16) & 0xFFFF_FFFF_FFFF_FFFF  # 64-bit unsigned
+
+
 def generate_cue_sequence(
     master_seed: int,
     task_type: str,
@@ -78,9 +96,9 @@ def generate_cue_sequence(
     #   with the same master_seed.
     # Why: task paradigms have different trial structures (e.g., go/no-go vs
     #   two-choice), so the same seed value should lead to different cues.
-    # Outcome: initialize RNG with (master_seed, task_type) hash so the salt is
-    #   task-specific and deterministic.
-    rng = random.Random(hash((master_seed, task_type)))
+    # Outcome: initialize RNG with stable salt computed from master_seed and
+    #   task_type so the salt is task-specific and deterministic across processes.
+    rng = random.Random(_stable_salt(master_seed, task_type))
 
     trial_seeds = [rng.randint(0, 2**31 - 1) for _ in range(n_trials)]
 

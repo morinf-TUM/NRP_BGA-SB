@@ -51,6 +51,29 @@ class TestDeterminism:
         assert len(seq_100.trial_seeds) == 100
         assert len(seq_200.trial_seeds) == 200
 
+    def test_seeds_are_process_independent(self):
+        """Verify trial_seeds are stable across processes (not PYTHONHASHSEED-dependent).
+
+        This test catches any regression to hash() which is randomized per-process.
+        The expected seed values are hardcoded from the sha256-based implementation.
+        """
+        seq = generate_cue_sequence(master_seed=42, task_type="go_nogo", n_trials=5)
+
+        # These values are hardcoded after computing once with the sha256
+        # implementation. If the code reverts to hash(), these will differ.
+        assert len(seq.trial_seeds) == 5
+        assert seq.trial_seeds[0] == 421241054
+        assert seq.trial_seeds == [421241054, 1315106536, 433368447, 1162719129, 1358753899]
+
+        # Verify re-running produces the same sequence (in-process determinism)
+        seq2 = generate_cue_sequence(master_seed=42, task_type="go_nogo", n_trials=5)
+        assert seq2.trial_seeds[0] == seq.trial_seeds[0]
+        assert seq2.trial_seeds == seq.trial_seeds
+
+        # Verify different task types give different first seeds (independence)
+        seq_tc = generate_cue_sequence(master_seed=42, task_type="two_choice", n_trials=5)
+        assert seq_tc.trial_seeds[0] != seq.trial_seeds[0]
+
 
 # --- Independence tests ---
 
