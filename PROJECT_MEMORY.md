@@ -12,6 +12,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 1 complete (2026-06-19).** All six tasks complete: four task engines, three reference policies, cue generator. M1 acceptance criterion verified: all four paradigms produce valid `TrialLog`s and `Metrics` under each of the three reference policies (212 tests passing).
 - **Phase 2 complete (2026-06-19).** BG model wrapper and isolated validation. M2 acceptance criterion verified: BGAdapter selects correctly under salience manipulation (low and medium conflict); selection latency is strictly monotone with conflict; 271 tests passing.
 - **Phase 3 complete (2026-06-19).** Frequency-intervention layer. M3 acceptance criterion verified: four frequency variables independently configurable; ablation identifies primary variable with evidence; 349 tests passing, ruff clean. See §19 for module map and §5.1 for M3 finding.
+- **Phase 4 complete (2026-06-19).** Full abstract closed loop: cortical evidence generator → BG → thalamic gate → motor command. M4-prep acceptance criterion verified: BG-frequency manipulation propagates to abstract motor output (5 Hz → all go trials miss; 40 Hz → all succeed); trial logs remain valid across all four paradigms; 422 tests passing, ruff clean. See §20 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -601,3 +602,81 @@ All randomness via `_derive_seed(trial_log.seed, tag)` using `hashlib.sha256`.
 - **Hyperdirect pathway** not yet modelled (deferred from Phase 2; the stop-signal override remains a policy-level flag).
 - **Phase offset** is modelled as additive latency in `PhaseOffsetWrapper`; nrp-core phase offset (engine timestep with different starting offset) is unverified and deferred to Phase 9.
 - **Ablation should be re-run** after Phase 4 introduces time-varying cortical evidence to confirm primary variable assignment empirically.
+
+---
+
+## 20. Phase 4 module map (stable as of 2026-06-19)
+
+### 20.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    cortex.py       — CortexConfig, CortexEvidenceGenerator (Task 4.1)
+    thalamus.py     — ThalamusConfig, ThalamusGate (Task 4.2)
+    closed_loop.py  — ClosedLoopPolicy, make_closed_loop_policy (Task 4.3)
+
+tests/
+    test_cortex.py       — 36 tests: config validation, ramp shape, channel mapping,
+                           symmetry, stop_signal detection, noise (Task 4.1)
+    test_thalamus.py     — 22 tests: gate-state logic, gain interpolation,
+                           command vector encoding, metadata (Task 4.2)
+    test_closed_loop.py  — 15 tests: factory, frequency propagation (M4 acceptance),
+                           motor command series, thalamic timing, 4-engine
+                           integration, backward compatibility (Task 4.3)
+```
+
+### 20.2 CortexEvidenceGenerator design
+
+- **Evidence model**: linear ramp from `[base_salience, base_salience]` (neutral) to `[peak_salience, 1 − peak_salience]` (directed) over `rise_time_ms`. Competing channel = 1 − preferred, so the sum is always 1.0.
+- **Channel direction from `cue_identity`**:
+  - `"go"`, `"left"`, `"no_switch"`, `"switch_*"` → channel 0 preferred
+  - `"right"` → channel 1 preferred
+  - `"no_go"`, `"stop"` → both channels at `base_salience` (BG should withhold)
+- **stop_signal_present**: derived by scanning `trial_log.events` for `EventType.stop_signal`.
+- **Noise**: optional reproducible Gaussian via `hashlib.sha256` + Box-Muller (default off).
+- **Phase 5+ limitation**: switch_* cue_identities always map to channel 0 (pre-switch direction); post-switch redirection requires a switch-aware generator.
+
+### 20.3 ThalamusGate design
+
+- **Gate logic** (in priority order):
+  1. `selected_channel == -1` → gate `"closed"`, gain `0.0`
+  2. `margin < margin_threshold` → gate `"closed"`, gain `0.0`
+  3. `margin_threshold ≤ margin < full_open_threshold` → gate `"partial"`, gain linearly interpolated in `[0.0, 1.0)`
+  4. `margin ≥ full_open_threshold` → gate `"open"`, gain `1.0`
+- **Command vector**: `command[selected_channel] = gate_gain`; all other channels `0.0`.
+- **Defaults**: `margin_threshold=0.05`, `full_open_threshold=0.30`, `n_channels=2`.
+
+### 20.4 ScheduledBGAdapter extension (backward-compatible)
+
+- Added optional `cortex_generator: Callable[[TrialLog, float], ActionEvidence] | None = None` parameter to `__init__`.
+- Gate 1 (input sampling): when `cortex_generator` is set, calls `cortex_generator(trial_log, tick * base_dt_ms)` at each sampling tick instead of copying the static `action_evidence`. When `None`, behaviour is identical to Phase 3.
+- All 36 Phase 3 scheduler tests continue to pass (backward compatibility confirmed).
+
+### 20.5 ClosedLoopPolicy and factory
+
+- **`ClosedLoopPolicy.__call__(trial_log, action_evidence) → BGDecision`**: chains `ScheduledBGAdapter` (with cortex_generator) → `ThalamusGate`; side-effects `trial_log.motor_command_series` (appends one `MotorCommand` per call) and sets `thalamic_relay_time` / `thalamic_release_time`.
+- **`make_closed_loop_policy(...)`**: convenience factory accepting optional component configs; defaults to 160 Hz, 100 ms rise time, standard thalamic thresholds.
+
+### 20.6 Phase 4 frequency-effect mechanism
+
+The key mechanism that makes BG-frequency effects observable (resolving the Phase 3 null result):
+
+- At tick=0, cortical evidence is neutral `[0.5, 0.5]` → BGModel cannot select → `committed_decision.selected_channel = -1`.
+- Evidence rises over `rise_time_ms` (default 100 ms). BGModel first selects when the salience gap exceeds the medium-conflict threshold (~0.3, i.e. frac ≈ 0.375, elapsed ≈ 37.5 ms).
+- **Low frequency** (e.g. 5 Hz, `period_ticks = 200`): Gate 1 fires only at tick=0 within a 200-tick accumulation window. BG sees only neutral evidence → no commitment → `selected_channel = -1` → go trials miss.
+- **Higher frequency** (e.g. 10 Hz, `period_ticks = 100`): Gate 1 fires at tick=0 (no selection) and tick=100 (full rise → selection) → go trials succeed.
+- Frequency threshold is approximately `1000 / accumulation_ms` Hz (default: ~5 Hz boundary).
+
+### 20.7 M4-prep acceptance (verified 2026-06-19)
+
+- BG-frequency manipulation propagates to abstract motor output: ✓ (5 Hz → all go misses; 40 Hz → all go successes)
+- Trial logs remain valid across all four paradigms: ✓ (non-decreasing sim_time, success field set)
+- Intermediate states observable for failure diagnosis: ✓ (motor_command_series, thalamic timing)
+- 422 tests passing (73 new in Phase 4); ruff clean.
+
+### 20.8 Known constraints at Phase 4
+
+- **switch_* cue_identity**: CortexEvidenceGenerator always maps to channel 0 (pre-switch direction). Post-switch evidence switching requires detecting `evidence_change` events and reversing salience direction; deferred to Phase 5.
+- **go_nogo and stop_signal BGAdapter constraint resolved**: go trials now succeed with BGAdapter because directed cortical evidence is generated from `cue_identity="go"`. No-go and stop trials correctly withhold (neutral salience → BG returns -1).
+- **Ablation should now be re-run**: Phase 4 time-varying evidence makes individual frequency knobs dissociable (see §5.1 and §19.6). The Phase 3 null result no longer applies.
+- **Thalamic delay is zero**: `thalamic_relay_time == thalamic_release_time` in the abstract model. A non-zero thalamic delay can be added via `LatencyWrapper` from Phase 3 perturbations.py.
