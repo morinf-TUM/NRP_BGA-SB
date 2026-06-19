@@ -35,9 +35,10 @@ from nrp_bga_sb.scorer import score_trials
 SWEEP_FREQUENCIES_HZ: list[float] = [10.0, 20.0, 40.0, 80.0, 160.0]
 BASELINE_HZ: float = 160.0
 
-# The four frequency knobs defined in FrequencyConfig (§5 of PROJECT_MEMORY).
-# Note: integration_step_hz is excluded — it operates inside the BG solver,
-# not at the gate level, and its sweep requires a different abstraction.
+# All four FrequencyConfig knobs are swept independently.
+# integration_step_hz shares the same gate-level driver as the other three
+# in the abstract model; its nrp-core binding (internal ODE solver step) is
+# distinct, but its behavioral isolation requires Phase 4 time-varying evidence.
 KNOB_NAMES: list[str] = [
     "input_sampling_hz",
     "integration_step_hz",

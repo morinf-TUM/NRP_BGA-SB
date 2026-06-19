@@ -157,6 +157,9 @@ class TestJitterWrapper:
         wrapper = JitterWrapper(base_policy=policy, jitter_std_ms=10.0)
         result = wrapper(_make_trial_log(), _make_action_evidence())
         assert isinstance(result.selection_latency, float)
+        # Verify the value was actually perturbed — jitter delta is seeded from
+        # trial_log.seed and std=10ms makes an exact zero delta astronomically unlikely.
+        assert result.selection_latency != pytest.approx(0.05, abs=1e-9)
 
     def test_determinism_same_seed_same_jitter(self) -> None:
         """Test 9: Determinism — same trial_log.seed → same jitter delta every call."""
@@ -377,6 +380,14 @@ class TestComposition:
             assert isinstance(result, BGDecision)
             results.append(result)
 
-        # With 10 varied seeds and p=0.5, at least 1 should pass through
-        # (the first call always passes, so this is guaranteed).
         assert len(results) == 10
+
+        # A dropped call returns the exact same object (by identity) as the
+        # previous pass-through result.  With p=0.5 and 10 varied seeds,
+        # we expect at least 1 drop among calls 2–10, so the number of unique
+        # result objects must be less than 10.
+        num_unique_objects = len({id(r) for r in results})
+        assert num_unique_objects < 10, (
+            f"Expected some dropout (p=0.5, 10 seeds) but all {len(results)} "
+            "results were distinct objects — no drops detected."
+        )
