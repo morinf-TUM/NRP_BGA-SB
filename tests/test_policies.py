@@ -100,6 +100,24 @@ class TestOraclePolicy:
         decision = oracle_policy(trial_log, evidence)
         assert abs(decision.decision_margin - 0.5) < 1e-6  # 0.8 - 0.3
 
+    def test_oracle_decision_margin_single_channel(self):
+        """Oracle sets decision_margin=0.0 for single-channel evidence."""
+        trial_log = TrialLog(
+            trial_id=1,
+            seed=42,
+            task_type="go_nogo",
+            cue_identity="go",
+            cue_onset_time=0.0,
+        )
+        evidence = ActionEvidence(
+            sim_time=0.1,
+            trial_id=1,
+            n_channels=1,
+            channel_salience=[0.7],
+        )
+        decision = oracle_policy(trial_log, evidence)
+        assert decision.decision_margin == 0.0
+
 
 # --- Unit Tests: Random Policy ---
 
@@ -174,6 +192,25 @@ class TestRandomPolicy:
         policy = RandomPolicy()
         decision = policy(trial_log, evidence)
         assert decision.channel_activations == [0.7, 0.4]
+
+    def test_random_decision_margin_single_channel(self):
+        """Random policy sets decision_margin=0.0 for single-channel evidence."""
+        trial_log = TrialLog(
+            trial_id=1,
+            seed=42,
+            task_type="go_nogo",
+            cue_identity="go",
+            cue_onset_time=0.0,
+        )
+        evidence = ActionEvidence(
+            sim_time=0.1,
+            trial_id=1,
+            n_channels=1,
+            channel_salience=[0.7],
+        )
+        policy = RandomPolicy()
+        decision = policy(trial_log, evidence)
+        assert decision.decision_margin == 0.0
 
 
 # --- Unit Tests: Threshold Policy ---
@@ -258,6 +295,25 @@ class TestThresholdPolicy:
         policy = ThresholdPolicy(threshold=0.6)
         decision = policy(trial_log, evidence)
         assert decision.selected_channel == 0  # 0.6 >= 0.6 is True
+
+    def test_threshold_decision_margin_single_channel(self):
+        """Threshold policy sets decision_margin=0.0 for single-channel evidence."""
+        trial_log = TrialLog(
+            trial_id=1,
+            seed=42,
+            task_type="go_nogo",
+            cue_identity="go",
+            cue_onset_time=0.0,
+        )
+        evidence = ActionEvidence(
+            sim_time=0.1,
+            trial_id=1,
+            n_channels=1,
+            channel_salience=[0.7],
+        )
+        policy = ThresholdPolicy(threshold=0.6)
+        decision = policy(trial_log, evidence)
+        assert decision.decision_margin == 0.0
 
 
 # --- Unit Tests: BGDecision Schema ---
@@ -355,7 +411,7 @@ class TestM1IntegrationAllEngines:
                 assert isinstance(trial, TrialLog)
                 assert trial.task_type == "go_nogo"
                 assert trial.success is not None
-                assert trial.failure_mode is not None or trial.success
+                assert trial.success or trial.failure_mode is not None
                 assert len(trial.events) > 0  # Event stream populated
 
             # Verify score_trials works.

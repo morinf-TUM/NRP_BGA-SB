@@ -46,11 +46,13 @@ def oracle_policy(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDec
             selected_channel = action_evidence.channel_salience.index(max_salience)
 
     # Compute decision margin: gap between top-1 and top-2 saliences.
-    saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
-    if len(saliences_sorted) >= 2:
+    # decision_margin is semantically a gap between two channels; when there is only one
+    # channel, there is no gap, so margin should be 0.0 rather than the single salience.
+    if len(action_evidence.channel_salience) >= 2:
+        saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
         decision_margin = saliences_sorted[0] - saliences_sorted[1]
     else:
-        decision_margin = saliences_sorted[0] if saliences_sorted else 0.0
+        decision_margin = 0.0
 
     return BGDecision(
         sim_time=action_evidence.sim_time,
@@ -72,12 +74,7 @@ class RandomPolicy:
 
     The policy is seeded from trial_log.seed to ensure deterministic reproducibility:
     same seed → same decision every time.
-
-    Attributes:
-        threshold: not used; present for interface compatibility.
     """
-
-    threshold: float = 0.6  # unused; for interface consistency
 
     def __call__(
         self, trial_log: TrialLog, action_evidence: ActionEvidence
@@ -91,12 +88,14 @@ class RandomPolicy:
         choices = [0, 1, -1]
         selected_channel = rng.choice(choices)
 
-        # Compute decision margin from evidence.
-        saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
-        if len(saliences_sorted) >= 2:
+        # Compute decision margin: gap between top-1 and top-2 saliences.
+        # decision_margin is semantically a gap between two channels; when there is only one
+        # channel, there is no gap, so margin should be 0.0 rather than the single salience.
+        if len(action_evidence.channel_salience) >= 2:
+            saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
             decision_margin = saliences_sorted[0] - saliences_sorted[1]
         else:
-            decision_margin = saliences_sorted[0] if saliences_sorted else 0.0
+            decision_margin = 0.0
 
         return BGDecision(
             sim_time=action_evidence.sim_time,
@@ -146,12 +145,14 @@ class ThresholdPolicy:
             else:
                 selected_channel = -1
 
-        # Compute decision margin.
-        saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
-        if len(saliences_sorted) >= 2:
+        # Compute decision margin: gap between top-1 and top-2 saliences.
+        # decision_margin is semantically a gap between two channels; when there is only one
+        # channel, there is no gap, so margin should be 0.0 rather than the single salience.
+        if len(action_evidence.channel_salience) >= 2:
+            saliences_sorted = sorted(action_evidence.channel_salience, reverse=True)
             decision_margin = saliences_sorted[0] - saliences_sorted[1]
         else:
-            decision_margin = saliences_sorted[0] if saliences_sorted else 0.0
+            decision_margin = 0.0
 
         return BGDecision(
             sim_time=action_evidence.sim_time,
