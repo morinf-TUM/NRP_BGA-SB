@@ -50,6 +50,20 @@ def score_trials(
     else:
         false_alarm_rate = None
 
+    # --- Switch success rate ---
+    # Switch trials are identified by the presence of an evidence_change event.
+    # A switch trial is successful when the post-switch decision selects channel 1
+    # (the new target), encoded as success=True on the trial log.
+    switch_trials = [
+        t for t in trials
+        if any(e.event_type == EventType.evidence_change for e in t.events)
+    ]
+    if switch_trials:
+        switch_successes = sum(1 for t in switch_trials if t.success is True)
+        switch_success_rate: float | None = switch_successes / len(switch_trials)
+    else:
+        switch_success_rate = None
+
     return Metrics(
         condition_id=condition_id,
         bg_frequency_hz=bg_frequency_hz,
@@ -58,4 +72,5 @@ def score_trials(
         reaction_time_std=rt_std,
         wrong_action_rate=wrong_action_rate,
         false_alarm_rate=false_alarm_rate,
+        switch_success_rate=switch_success_rate,
     )
