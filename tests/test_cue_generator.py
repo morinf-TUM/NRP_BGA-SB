@@ -8,8 +8,6 @@ Coverage:
 - Round-trip: shared_seed_configs configs work with actual engines
 """
 
-import random
-from dataclasses import replace
 
 import pytest
 
@@ -18,7 +16,6 @@ from nrp_bga_sb.engines.change_of_mind import ChangeOfMindConfig
 from nrp_bga_sb.engines.go_nogo import GoNoGoConfig
 from nrp_bga_sb.engines.stop_signal import StopSignalConfig
 from nrp_bga_sb.engines.two_choice import TwoChoiceConfig
-
 
 # --- Determinism tests ---
 

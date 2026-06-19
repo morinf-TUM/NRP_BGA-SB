@@ -15,13 +15,17 @@ def oracle_policy(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDec
     Examines action_evidence.channel_salience to determine which channel
     has higher salience and selects that channel. Perfect policy for testing.
     """
-    higher_salience_channel = 0 if action_evidence.channel_salience[0] > action_evidence.channel_salience[1] else 1
+    higher_salience_channel = (
+        0 if action_evidence.channel_salience[0] > action_evidence.channel_salience[1] else 1
+    )
 
     return BGDecision(
         sim_time=action_evidence.sim_time,
         trial_id=trial_log.trial_id,
         selected_channel=higher_salience_channel,
-        decision_margin=abs(action_evidence.channel_salience[0] - action_evidence.channel_salience[1]),
+        decision_margin=abs(
+            action_evidence.channel_salience[0] - action_evidence.channel_salience[1]
+        ),
         suppression_vector=[0.0, 0.0],
         channel_activations=action_evidence.channel_salience,
         selection_latency=0.0,
@@ -34,7 +38,9 @@ def always_left_policy(trial_log: TrialLog, action_evidence: ActionEvidence) -> 
         sim_time=action_evidence.sim_time,
         trial_id=trial_log.trial_id,
         selected_channel=0,
-        decision_margin=abs(action_evidence.channel_salience[0] - action_evidence.channel_salience[1]),
+        decision_margin=abs(
+            action_evidence.channel_salience[0] - action_evidence.channel_salience[1]
+        ),
         suppression_vector=[0.0, 0.0],
         channel_activations=action_evidence.channel_salience,
         selection_latency=0.0,
@@ -47,7 +53,9 @@ def always_right_policy(trial_log: TrialLog, action_evidence: ActionEvidence) ->
         sim_time=action_evidence.sim_time,
         trial_id=trial_log.trial_id,
         selected_channel=1,
-        decision_margin=abs(action_evidence.channel_salience[0] - action_evidence.channel_salience[1]),
+        decision_margin=abs(
+            action_evidence.channel_salience[0] - action_evidence.channel_salience[1]
+        ),
         suppression_vector=[0.0, 0.0],
         channel_activations=action_evidence.channel_salience,
         selection_latency=0.0,
@@ -332,8 +340,10 @@ def test_oracle_has_no_wrong_target_or_timeout():
     trials = run_two_choice_trials(config, oracle_policy)
 
     for trial in trials:
-        assert trial.failure_mode is None, \
-            f"Oracle trial {trial.trial_id} should not fail, but has failure_mode={trial.failure_mode}"
+        assert trial.failure_mode is None, (
+            f"Oracle trial {trial.trial_id} should not fail, "
+            f"but has failure_mode={trial.failure_mode}"
+        )
 
 
 def test_always_left_policy_on_biased_conflicts():
@@ -386,7 +396,9 @@ def test_always_act_policies_have_correct_vs_wrong_target():
         assert timeout_count == 0, f"Policy always_{policy_name} should never timeout"
         # Should have mix of success and wrong_target
         assert success_count > 0, f"Policy always_{policy_name} should have some successes"
-        assert wrong_target_count > 0, f"Policy always_{policy_name} should have some wrong_target errors"
+        assert wrong_target_count > 0, (
+            f"Policy always_{policy_name} should have some wrong_target errors"
+        )
 
 
 # --- Test: Response Timing ---
@@ -607,8 +619,10 @@ def test_response_window_start_offset():
     trials = run_two_choice_trials(config, oracle_policy)
     for trial in trials:
         assert trial.success is False
-        assert trial.failure_mode == "timeout", \
-            f"Trial {trial.trial_id}: decision outside window should be timeout, got {trial.failure_mode}"
+        assert trial.failure_mode == "timeout", (
+            f"Trial {trial.trial_id}: decision outside window should be timeout, "
+            f"got {trial.failure_mode}"
+        )
 
 
 def test_response_window_respects_duration():

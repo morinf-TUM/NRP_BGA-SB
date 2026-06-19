@@ -31,7 +31,6 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
 
 from nrp_bga_sb.logger import TrialLogger
 from nrp_bga_sb.schemas import ActionEvidence, BGDecision, EventType, TaskEvent, TrialLog
