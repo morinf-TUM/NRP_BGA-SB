@@ -11,6 +11,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 0 complete (2026-06-19).** Source tree, schemas, trial logger, replay, and scorer are implemented and reviewed. M0 acceptance criterion verified: synthetic trials replay exactly from logs; scorer emits metrics without any neural module.
 - **Phase 1 complete (2026-06-19).** All six tasks complete: four task engines, three reference policies, cue generator. M1 acceptance criterion verified: all four paradigms produce valid `TrialLog`s and `Metrics` under each of the three reference policies (212 tests passing).
 - **Phase 2 complete (2026-06-19).** BG model wrapper and isolated validation. M2 acceptance criterion verified: BGAdapter selects correctly under salience manipulation (low and medium conflict); selection latency is strictly monotone with conflict; 271 tests passing.
+- **Phase 3 complete (2026-06-19).** Frequency-intervention layer. M3 acceptance criterion verified: four frequency variables independently configurable; ablation identifies primary variable with evidence; 349 tests passing, ruff clean. See §19 for module map and §5.1 for M3 finding.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -523,3 +524,80 @@ Mean STN (not sum) used for GPi excitation to make selection scale-invariant wit
 - **go_nogo and stop_signal** use `channel_salience = [0.5, 0.5]` (neutral), which produces `selected_channel = −1` with BGAdapter (BG cannot decide without directional evidence). These engines need updated salience encoding to work with the BG model; deferred to Phase 4 (cortex evidence generator).
 - **Hyperdirect pathway** (rapid STN boost on stop signal) is not modelled; stop signal is a policy-level override. Phase 3 may add this.
 - **Latency proxy is analytic** (derived from T_winner), not a dynamic simulation of settling time. A full ODE-based latency model is deferred to Phase 3.
+
+---
+
+## 19. Phase 3 module map (stable as of 2026-06-19)
+
+### 19.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    scheduler.py        — FrequencyConfig, ScheduledBGAdapter (Tasks 3.1, 3.4)
+    perturbations.py    — LatencyWrapper, JitterWrapper, DropoutWrapper,
+                          PhaseOffsetWrapper, _derive_seed (Task 3.2)
+    ablation.py         — build_sweep_config, run_condition, run_knob_sweep,
+                          run_full_ablation, summarize_ablation (Task 3.3)
+
+experiments/
+    ablation_frequency.py  — Phase 3 ablation runner script (Task 3.3)
+
+data/
+    phase3_ablation_report.txt   — textual ablation finding (generated)
+    phase3_ablation_results.jsonl — per-condition metrics (generated)
+
+tests/
+    test_scheduler.py      — 36 tests: FrequencyConfig, ScheduledBGAdapter,
+                             from_effective_hz (Tasks 3.1, 3.4)
+    test_perturbations.py  — 24 tests: all four wrappers + composition
+                             (Task 3.2)
+    test_ablation.py       — 18 tests: sweep construction, condition runner,
+                             null-result assertion (Task 3.3)
+```
+
+### 19.2 FrequencyConfig knobs
+
+| Knob | Default | nrp-core binding (§15.4) |
+|---|---|---|
+| `input_sampling_hz` | 160.0 | `EngineTimestep` of a sampler engine (if split from BG core) |
+| `integration_step_hz` | 1000.0 | Internal ODE solver step inside the BG engine |
+| `output_emission_hz` | 160.0 | `EngineTimestep` of the BG engine — **primary variable** |
+| `commitment_update_hz` | 160.0 | Commitment-gate TF firing period |
+| `base_dt_ms` | 1.0 | Simulation base step; all Hz ≤ 1000/base_dt_ms |
+
+`FrequencyConfig.from_effective_hz(hz)` sets all four knobs to `hz` for Phase 5 sweep experiments.
+
+### 19.3 ScheduledBGAdapter conventions
+
+- **Integer-tick arithmetic**: `period_ticks = max(1, round(1000 / (hz * base_dt_ms)))` — avoids float modulo drift.
+- **Tick-0 guarantee**: all four gates fire at tick 0 (`0 % n == 0` for any positive integer n). In the constant-evidence abstract model, `committed_decision` is always established on the first tick.
+- **Stateless between calls**: each `__call__` runs a fresh simulation; no instance state mutated.
+- **Fallback**: direct `base_policy` call if no commitment established (defensive guard; unreachable under valid config).
+- **`accumulation_ms` parameter** (default 200 ms): the pre-decision integration window.
+
+### 19.4 Perturbation wrappers conventions
+
+All four wrappers implement `__call__(trial_log, action_evidence) -> BGDecision`:
+
+| Wrapper | Effect | State |
+|---|---|---|
+| `LatencyWrapper(latency_ms)` | adds `latency_ms/1000` to selection_latency | stateless |
+| `JitterWrapper(jitter_std_ms)` | adds N(0, jitter_std_ms)/1000 to selection_latency; clips at 0 | stateless |
+| `DropoutWrapper(dropout_probability)` | returns `_last_decision` with prob p; first call always passes | **stateful** (inter-call) |
+| `PhaseOffsetWrapper(phase_offset_ms)` | adds `phase_offset_ms/1000` to selection_latency | stateless |
+
+All randomness via `_derive_seed(trial_log.seed, tag)` using `hashlib.sha256`.
+
+### 19.5 M3 acceptance (verified 2026-06-19)
+
+- Four frequency variables independently configurable via `FrequencyConfig`: ✓
+- Timing perturbations implemented (latency, jitter, dropout, phase offset): ✓
+- Ablation report identifies primary variable with evidence: ✓ (null result + theoretical assignment; see §5.1)
+- 349 tests passing (78 new in Phase 3); ruff clean.
+
+### 19.6 Known constraints at Phase 3
+
+- **Null ablation result**: in the abstract constant-evidence model, all four frequency knobs produce identical behavioral outcomes. Differential effects require Phase 4 time-varying cortical evidence. See §5.1 for full explanation.
+- **Hyperdirect pathway** not yet modelled (deferred from Phase 2; the stop-signal override remains a policy-level flag).
+- **Phase offset** is modelled as additive latency in `PhaseOffsetWrapper`; nrp-core phase offset (engine timestep with different starting offset) is unverified and deferred to Phase 9.
+- **Ablation should be re-run** after Phase 4 introduces time-varying cortical evidence to confirm primary variable assignment empirically.
