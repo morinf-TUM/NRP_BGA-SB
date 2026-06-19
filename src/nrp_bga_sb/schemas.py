@@ -3,16 +3,37 @@
 Six Pydantic v2 BaseModel classes that form the foundation for the logger
 (Task 0.5), replay (Task 0.6), and scorer (Task 0.7). All schemas support
 lossless JSON round-trips via model_dump_json / model_validate_json.
-
-Note: task_event.event_type uses str for now; Task 0.4 replaces it with
-a proper EventType enum once the canonical event vocabulary is finalised.
 """
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, field_validator, model_validator
+
+# --- EventType Enum ---
+
+
+class EventType(str, Enum):
+    """Canonical event vocabulary for a trial's event stream.
+
+    Values are lowercase strings so they serialize to JSON identically
+    to their name — EventType.go_cue serializes as "go_cue".
+    """
+    trial_start     = "trial_start"
+    fixation_on     = "fixation_on"
+    go_cue          = "go_cue"
+    no_go_cue       = "no_go_cue"
+    target_on_left  = "target_on_left"
+    target_on_right = "target_on_right"
+    stop_signal     = "stop_signal"
+    evidence_change = "evidence_change"
+    movement_onset  = "movement_onset"
+    decision_commit = "decision_commit"
+    movement_end    = "movement_end"
+    trial_end       = "trial_end"
+
 
 # --- TaskEvent ---
 
@@ -25,7 +46,7 @@ class TaskEvent(BaseModel):
     payload: per-event flexible data; keys depend on event_type.
     """
 
-    event_type: str           # will become EventType enum in Task 0.4
+    event_type: EventType
     sim_time: float           # logical clock time (s)
     real_time: float          # wall-clock time (s)
     trial_id: int

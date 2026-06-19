@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from nrp_bga_sb.schemas import (
     ActionEvidence,
     BGDecision,
+    EventType,
     Metrics,
     MotorCommand,
     TaskEvent,
@@ -27,13 +28,13 @@ from nrp_bga_sb.schemas import (
 
 def test_task_event_construction():
     evt = TaskEvent(
-        event_type="trial_start",
+        event_type=EventType.trial_start,
         sim_time=0.0,
         real_time=1.234,
         trial_id=1,
         payload={"foo": "bar"},
     )
-    assert evt.event_type == "trial_start"
+    assert evt.event_type == EventType.trial_start
     assert evt.trial_id == 1
 
 
@@ -79,7 +80,7 @@ def test_trial_log_full_construction():
         sim_time=0.15, trial_id=1, command=[1.0], gate_state="open", gate_gain=0.8
     )
     evt = TaskEvent(
-        event_type="go_cue", sim_time=0.0, real_time=0.0, trial_id=1, payload={}
+        event_type=EventType.go_cue, sim_time=0.0, real_time=0.0, trial_id=1, payload={}
     )
     log = TrialLog(
         trial_id=1,
@@ -190,7 +191,7 @@ def test_trial_log_json_round_trip():
         sim_time=0.15, trial_id=7, command=[0.5, -0.3], gate_state="partial", gate_gain=0.6
     )
     evt = TaskEvent(
-        event_type="movement_onset",
+        event_type=EventType.movement_onset,
         sim_time=0.2,
         real_time=1.5,
         trial_id=7,
@@ -243,3 +244,34 @@ def test_trial_log_minimal_construction():
     assert log.message_counts == {}
     assert log.dropped_message_counts == {}
     assert log.events == []
+
+
+# --- 5. EventType enum ---
+
+
+CANONICAL_EVENTS = {
+    "trial_start", "fixation_on", "go_cue", "no_go_cue",
+    "target_on_left", "target_on_right", "stop_signal", "evidence_change",
+    "movement_onset", "decision_commit", "movement_end", "trial_end",
+}
+
+
+def test_event_type_vocabulary():
+    """EventType enum must contain all 12 canonical event types."""
+    assert set(EventType.__members__.keys()) == CANONICAL_EVENTS
+
+
+def test_task_event_json_round_trip():
+    """TaskEvent with EventType enum must survive JSON serialization and
+    deserialization, preserving the EventType value (not converting to string)."""
+    evt = TaskEvent(
+        event_type=EventType.go_cue,
+        sim_time=0.05,
+        real_time=1.23,
+        trial_id=5,
+        payload={"intensity": 0.8},
+    )
+    json_str = evt.model_dump_json()
+    reconstructed = TaskEvent.model_validate_json(json_str)
+    assert reconstructed.event_type == EventType.go_cue
+    assert reconstructed == evt
