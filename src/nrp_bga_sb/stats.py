@@ -166,7 +166,9 @@ def format_sweep_report(
             if not curves:
                 continue
             slope = fit_frequency_slope(curves)
-            for freq in sorted(curves.keys()):
+            for freq in sorted(frequencies):
+                if freq not in curves:
+                    continue
                 d = curves[freq]
                 lines.append(
                     f"  {conflict:<10} {freq:<12.0f} "
@@ -185,7 +187,9 @@ def format_sweep_report(
                 if not curves:
                     continue
                 slope = fit_frequency_slope(curves)
-                for freq in sorted(curves.keys()):
+                for freq in sorted(frequencies):
+                    if freq not in curves:
+                        continue
                     d = curves[freq]
                     lines.append(
                         f"  {conflict:<10} {freq:<12.0f} "
