@@ -278,13 +278,17 @@ def run_change_of_mind_trials(
         pre_switch_decision = policy(state.trial_log, pre_switch_evidence)
         state.pre_switch_decision = pre_switch_decision
 
-        # Record pre-switch intent as decision_commit.
-        # This logs what the agent intended before any switch cue arrives.
-        # It is NOT the outcome-determining decision on switch trials.
+        # Record decision_commit at the pre-switch point.
+        # Switch trials: this is the initial (pre-switch) intent — NOT the outcome decision.
+        # No-switch trials: this is the sole decision, so it gets the neutral "decision" label.
+        # Trigger: label must distinguish switch-trial intent from no-switch-trial outcome.
+        # Why: "pre_switch" on a no-switch trial is misleading — there is no switch event
+        #      to contrast against. "decision" matches the go-trial convention.
+        # Outcome: downstream analysis can filter by phase without false "pre_switch" entries.
         _record_event(
             state.trial_log, logger, EventType.decision_commit,
             sim_time_ms=pre_switch_abs_ms,
-            payload={"phase": "pre_switch"},
+            payload={"phase": "pre_switch" if is_switch_trial else "decision"},
         )
 
         if is_switch_trial:

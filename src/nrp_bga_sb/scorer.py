@@ -36,8 +36,17 @@ def score_trials(
         rt_std = float(np.std(rts, ddof=1))
 
     # --- Wrong-action rate ---
+    # Note: go_nogo engines use failure_mode="wrong_action" (response outside window).
+    # Two-choice engines use failure_mode="wrong_target" (see wrong_target_rate below).
+    # wrong_action_rate will be 0.0 for pure two_choice trial sets.
     wrong_action_count = sum(1 for t in trials if t.failure_mode == "wrong_action")
     wrong_action_rate = wrong_action_count / n
+
+    # --- Wrong-target rate ---
+    # two_choice engines classify incorrect channel selections as "wrong_target",
+    # not "wrong_action". This metric gives two_choice trial sets a meaningful error rate.
+    wrong_target_count = sum(1 for t in trials if t.failure_mode == "wrong_target")
+    wrong_target_rate = wrong_target_count / n
 
     # --- False-alarm rate ---
     no_go_trials = [
@@ -71,6 +80,7 @@ def score_trials(
         reaction_time_mean=rt_mean,
         reaction_time_std=rt_std,
         wrong_action_rate=wrong_action_rate,
+        wrong_target_rate=wrong_target_rate,
         false_alarm_rate=false_alarm_rate,
         switch_success_rate=switch_success_rate,
     )

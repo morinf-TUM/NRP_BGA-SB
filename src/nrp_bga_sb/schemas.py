@@ -208,6 +208,7 @@ class Metrics(BaseModel):
     reaction_time_mean: float | None = None
     reaction_time_std: float | None = None
     wrong_action_rate: float | None = None
+    wrong_target_rate: float | None = None   # two_choice: fraction with failure_mode=="wrong_target"
     false_alarm_rate: float | None = None
     stop_success_rate: float | None = None
     switch_success_rate: float | None = None

@@ -591,6 +591,16 @@ class TestM1IntegrationAllEngines:
                     assert trial.success is not None
                     assert len(trial.events) > 0
 
+                # Verify event ordering: all events must be in non-decreasing sim_time order.
+                # A violation here means a decision or movement event was emitted before the
+                # cue that triggered it — the Critical Fix 1/2 regression guard.
+                for trial in trials:
+                    times = [e.sim_time for e in trial.events]
+                    assert times == sorted(times), (
+                        f"Events out of order in {engine_name}/{policy_name} "
+                        f"trial {trial.trial_id}: {times}"
+                    )
+
                 # Verify metrics.
                 metrics = score_trials(
                     trials, condition_id=f"m1_{engine_name}_{policy_name}", bg_frequency_hz=50.0

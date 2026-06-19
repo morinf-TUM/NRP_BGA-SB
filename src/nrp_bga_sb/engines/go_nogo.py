@@ -136,13 +136,18 @@ def run_go_nogo_trials(
         _record_event(trial_log, logger, cue_event_type, sim_time_ms=config.cue_onset_ms)
 
         # --- Call policy at decision point ---
+        # decision_point_ms is an offset from cue onset; add cue_onset_ms to get
+        # absolute sim_time so that decision events are never before the cue event.
+        decision_abs_ms = config.cue_onset_ms + config.decision_point_ms
+
         # Construct ActionEvidence. For Phase 1, we use a minimal evidence structure.
         # The policy will use this to decide whether to select an action.
         action_evidence = ActionEvidence(
-            sim_time=config.decision_point_ms / 1000.0,
+            sim_time=decision_abs_ms / 1000.0,
             trial_id=trial_id,
             n_channels=2,  # Phase 1: minimal 2-channel system
             channel_salience=[0.5, 0.5],  # Neutral evidence for both channels
+            stop_signal_present=False,  # no stop signal in go/no-go
         )
 
         decision = policy(trial_log, action_evidence)
@@ -153,7 +158,7 @@ def run_go_nogo_trials(
             trial_log,
             logger,
             EventType.decision_commit,
-            sim_time_ms=config.decision_point_ms,
+            sim_time_ms=decision_abs_ms,
         )
 
         # --- Classify response ---
@@ -162,8 +167,9 @@ def run_go_nogo_trials(
 
         # --- Emit movement_onset if response was made ---
         if responded:
-            # Emit movement_onset at decision point (Phase 1: no latency modeled).
-            movement_onset_ms = config.decision_point_ms
+            # Phase 1 limitation: movement onset is pinned to the decision point.
+            # RT variance appears in Phase 5+ when policies produce variable timing.
+            movement_onset_ms = decision_abs_ms
             _record_event(
                 trial_log,
                 logger,
@@ -177,12 +183,12 @@ def run_go_nogo_trials(
 
         # --- Emit movement_end only if response was made, and trial_end ---
         if responded:
-            movement_end_ms = config.decision_point_ms + 100  # Dummy: 100 ms after decision
+            movement_end_ms = decision_abs_ms + 100  # Dummy: 100 ms after decision
             _record_event(trial_log, logger, EventType.movement_end, sim_time_ms=movement_end_ms)
             trial_end_ms = movement_end_ms + 50  # Dummy: 50 ms after movement_end
         else:
             # No response: movement_end not emitted; trial_end follows decision_commit
-            trial_end_ms = config.decision_point_ms + 50  # Dummy: 50 ms after decision
+            trial_end_ms = decision_abs_ms + 50  # Dummy: 50 ms after decision
 
         _record_event(trial_log, logger, EventType.trial_end, sim_time_ms=trial_end_ms)
 

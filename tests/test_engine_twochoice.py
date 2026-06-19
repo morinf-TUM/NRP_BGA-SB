@@ -221,17 +221,35 @@ def test_target_cue_identity_matches_salience():
     """Test that cue_identity matches which channel has higher salience.
 
     The cue_identity should be "left" when channel 0 has higher salience,
-    and "right" when channel 1 has higher salience.
+    and "right" when channel 1 has higher salience. We verify this by recording
+    the salience values delivered to the policy on each trial and checking that the
+    relationship between cue_identity and channel_salience is consistent.
     """
+    salience_by_trial: dict[int, list[float]] = {}
+
+    def recording_oracle(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDecision:
+        salience_by_trial[trial_log.trial_id] = list(action_evidence.channel_salience)
+        return oracle_policy(trial_log, action_evidence)
+
     config = default_config()
     config.n_trials = 20
-    trials = run_two_choice_trials(config, oracle_policy)
+    trials = run_two_choice_trials(config, recording_oracle)
 
     for trial in trials:
-        # Reconstruct salience from action_evidence sent to policy (no direct access, so we infer)
-        # Instead, verify that at least one evidence field is captured or that success/failure is consistent
-        # For now, simply check that cue_identity is one of the expected values
-        assert trial.cue_identity in ("left", "right")
+        salience = salience_by_trial[trial.trial_id]
+        if trial.cue_identity == "left":
+            # left is correct → channel 0 must have higher salience
+            assert salience[0] > salience[1], (
+                f"Trial {trial.trial_id}: cue_identity='left' but "
+                f"channel_salience={salience} has ch1 >= ch0"
+            )
+        else:
+            assert trial.cue_identity == "right"
+            # right is correct → channel 1 must have higher salience
+            assert salience[1] > salience[0], (
+                f"Trial {trial.trial_id}: cue_identity='right' but "
+                f"channel_salience={salience} has ch0 >= ch1"
+            )
 
 
 # --- Test: Events Are Emitted Correctly ---
@@ -386,6 +404,11 @@ def test_movement_onset_emitted_only_on_response():
         ]
         assert len(movement_onset_events) == 1
         assert trial.movement_onset_time is not None
+        # RT must be positive: movement onset must come strictly after target onset.
+        assert trial.movement_onset_time > trial.cue_onset_time, (
+            f"Trial {trial.trial_id}: RT is non-positive "
+            f"(movement_onset={trial.movement_onset_time}, cue_onset={trial.cue_onset_time})"
+        )
 
 
 def test_movement_onset_not_emitted_on_no_response():
@@ -543,11 +566,17 @@ def test_policy_receives_correct_action_evidence():
     for evidence in received_evidence:
         assert evidence.n_channels == 2
         assert len(evidence.channel_salience) == 2
-        assert evidence.sim_time == pytest.approx(0.2)  # 200 ms in seconds
-        # Verify salience values match a configured conflict level
-        # Check that salience pair is one of the configured levels (as unordered pair)
-        assert isinstance(evidence.channel_salience[0], float)
-        assert isinstance(evidence.channel_salience[1], float)
+        # decision_point_ms is an offset from target_onset_ms; absolute sim_time is
+        # (target_onset_ms=1000 + decision_point_ms=200) / 1000 = 1.2 s
+        assert evidence.sim_time == pytest.approx(1.2)
+        # Verify salience pair is one of the configured conflict levels (order may be reversed)
+        configured_pairs = {
+            tuple(sorted(config.conflict_levels[level]))
+            for level in config.conflict_levels
+        }
+        pair = tuple(sorted(evidence.channel_salience))
+        assert pair in configured_pairs, \
+            f"Salience pair {evidence.channel_salience} not in configured levels"
 
 
 # --- Test: Response Window Logic ---

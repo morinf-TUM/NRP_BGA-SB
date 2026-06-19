@@ -307,6 +307,11 @@ def test_movement_onset_emitted_only_on_response():
         ]
         assert len(movement_onset_events) == 1
         assert trial.movement_onset_time is not None
+        # RT must be positive: movement onset must come strictly after cue onset.
+        assert trial.movement_onset_time > trial.cue_onset_time, (
+            f"Trial {trial.trial_id}: RT is non-positive "
+            f"(movement_onset={trial.movement_onset_time}, cue_onset={trial.cue_onset_time})"
+        )
 
 
 def test_movement_onset_not_emitted_on_no_response():
@@ -472,7 +477,9 @@ def test_policy_receives_correct_action_evidence():
     for evidence in received_evidence:
         assert evidence.n_channels == 2
         assert len(evidence.channel_salience) == 2
-        assert evidence.sim_time == pytest.approx(0.2)  # 200 ms in seconds
+        # decision_point_ms is an offset from cue_onset_ms; absolute sim_time is
+        # (cue_onset_ms=1000 + decision_point_ms=200) / 1000 = 1.2 s
+        assert evidence.sim_time == pytest.approx(1.2)
 
 
 # --- Test: Response Window Logic ---

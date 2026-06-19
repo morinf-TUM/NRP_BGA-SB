@@ -186,3 +186,27 @@ def test_condition_fields():
     assert result.condition_id == "cond_40hz"
     assert result.bg_frequency_hz == 40.0
     assert result.n_trials == 3
+
+
+def test_wrong_target_rate():
+    """Test that wrong_target_rate is computed correctly for two_choice trials."""
+    trials = [
+        make_trial(trial_id=1, seed=100, task_type="two_choice", failure_mode="wrong_target"),
+        make_trial(trial_id=2, seed=101, task_type="two_choice", failure_mode="wrong_target"),
+        make_trial(trial_id=3, seed=102, task_type="two_choice", failure_mode=None),
+        make_trial(trial_id=4, seed=103, task_type="two_choice", failure_mode=None),
+    ]
+    result = score_trials(trials, condition_id="test", bg_frequency_hz=40.0)
+    assert result.wrong_target_rate == pytest.approx(0.5)
+
+
+def test_wrong_target_rate_zero_for_gonogo():
+    """Test that wrong_target_rate is 0.0 for go_nogo trials (no wrong_target failures)."""
+    trials = [
+        make_trial(trial_id=1, seed=100, task_type="go_nogo", failure_mode="wrong_action"),
+        make_trial(trial_id=2, seed=101, task_type="go_nogo", failure_mode=None),
+    ]
+    result = score_trials(trials, condition_id="test", bg_frequency_hz=40.0)
+    assert result.wrong_target_rate == pytest.approx(0.0)
+    # And wrong_action_rate is non-zero for go_nogo
+    assert result.wrong_action_rate == pytest.approx(0.5)
