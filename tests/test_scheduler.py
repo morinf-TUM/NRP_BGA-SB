@@ -142,13 +142,65 @@ def test_frequency_config_base_dt_negative_raises():
 
 
 # ---------------------------------------------------------------------------
-# 5. FrequencyConfig.from_effective_hz raises NotImplementedError
+# 5. FrequencyConfig.from_effective_hz — six tests (Task 3.4)
 # ---------------------------------------------------------------------------
 
 
-def test_frequency_config_from_effective_hz_not_implemented():
-    with pytest.raises(NotImplementedError):
-        FrequencyConfig.from_effective_hz(160.0)
+def test_from_effective_hz_40():
+    # All four knobs must be set to the supplied value.
+    cfg = FrequencyConfig.from_effective_hz(40.0)
+    assert cfg.input_sampling_hz == 40.0
+    assert cfg.integration_step_hz == 40.0
+    assert cfg.output_emission_hz == 40.0
+    assert cfg.commitment_update_hz == 40.0
+
+
+def test_from_effective_hz_160():
+    cfg = FrequencyConfig.from_effective_hz(160.0)
+    assert cfg.input_sampling_hz == 160.0
+    assert cfg.integration_step_hz == 160.0
+    assert cfg.output_emission_hz == 160.0
+    assert cfg.commitment_update_hz == 160.0
+
+
+def test_from_effective_hz_10():
+    cfg = FrequencyConfig.from_effective_hz(10.0)
+    assert cfg.input_sampling_hz == 10.0
+    assert cfg.integration_step_hz == 10.0
+    assert cfg.output_emission_hz == 10.0
+    assert cfg.commitment_update_hz == 10.0
+
+
+def test_from_effective_hz_with_base_dt_kwarg():
+    # kwargs must be forwarded to FrequencyConfig (e.g. base_dt_ms).
+    cfg = FrequencyConfig.from_effective_hz(10.0, base_dt_ms=2.0)
+    assert cfg.input_sampling_hz == 10.0
+    assert cfg.integration_step_hz == 10.0
+    assert cfg.output_emission_hz == 10.0
+    assert cfg.commitment_update_hz == 10.0
+    assert cfg.base_dt_ms == 2.0
+
+
+def test_from_effective_hz_out_of_range_raises_validation_error():
+    # 1001 Hz exceeds the 1000 Hz ceiling for base_dt_ms=1.0.
+    # Pydantic raises ValidationError (not ValueError) because the validator
+    # runs inside FrequencyConfig.__init__.
+    with pytest.raises(ValidationError):
+        FrequencyConfig.from_effective_hz(1001.0)
+
+
+def test_from_effective_hz_integration_with_scheduled_adapter():
+    # from_effective_hz result must be accepted by ScheduledBGAdapter and
+    # produce a valid Metrics object when run through two_choice trials.
+    from nrp_bga_sb.scorer import score_trials
+
+    cfg = FrequencyConfig.from_effective_hz(40.0)
+    adapter = ScheduledBGAdapter(base_policy=BGAdapter(), config=cfg, accumulation_ms=200.0)
+    tc_config = _minimal_two_choice_config(n_trials=5)
+    logs = run_two_choice_trials(tc_config, adapter)
+    assert len(logs) == 5
+    metrics = score_trials(logs, condition_id="test_40hz", bg_frequency_hz=40.0)
+    assert metrics is not None
 
 
 # ---------------------------------------------------------------------------

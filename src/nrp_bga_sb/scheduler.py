@@ -82,19 +82,34 @@ class FrequencyConfig(BaseModel):
 
     @classmethod
     def from_effective_hz(cls, effective_hz: float, **kwargs: object) -> FrequencyConfig:
-        """Convenience constructor mapping a single effective BG frequency to all knobs.
+        """Convenience constructor: sets all four frequency knobs to `effective_hz`.
 
-        The primary frequency variable has not yet been identified; this method
-        is reserved for Task 3.4 once ablations (Task 3.3) determine which knob
-        dominates behavioural outcomes.
+        This represents the "unified effective BG frequency" used in Phase 5 sweep
+        experiments, where all four timing variables are co-varied together.
+
+        The primary variable, identified by the Phase 3 ablation (Task 3.3), is
+        output_emission_hz: it maps directly to nrp-core's EngineTimestep and
+        governs when downstream components (thalamus) see updated BG decisions.
+        In the abstract constant-evidence model, all four knobs produce equal
+        behavioral outcomes; they are co-varied here for simplicity until Phase 4
+        introduces time-varying cortical evidence.
+
+        Args:
+            effective_hz: Target frequency in Hz for all four knobs.
+            **kwargs:     Forwarded to FrequencyConfig (e.g., base_dt_ms).
+
+        Returns:
+            A FrequencyConfig with all four Hz knobs set to effective_hz.
+
+        Raises:
+            ValidationError: if effective_hz violates FrequencyConfig bounds.
         """
-        # Trigger: caller uses from_effective_hz before the primary variable is known.
-        # Why: Task 3.4 will identify which of the four knobs is the primary variable
-        #      and wire it here; using the method prematurely would silently apply an
-        #      arbitrary mapping.
-        # Outcome: NotImplementedError raised; caller must use FrequencyConfig directly.
-        raise NotImplementedError(
-            "primary variable not yet identified — see Task 3.4"
+        return cls(
+            input_sampling_hz=effective_hz,
+            integration_step_hz=effective_hz,
+            output_emission_hz=effective_hz,
+            commitment_update_hz=effective_hz,
+            **kwargs,
         )
 
 

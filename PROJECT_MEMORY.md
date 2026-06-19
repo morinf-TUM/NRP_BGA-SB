@@ -89,6 +89,22 @@ Companion timing variables (all must be parameterizable on the logical clock):
 
 Initial frequency sweep: 10, 20, 40, 80, 160 Hz (also coarser 5, 10, 20, 40, 80, 120 Hz variant from implementation plan).
 
+### 5.1 Phase 3 M3 Finding (2026-06-19)
+
+**Ablation result (Task 3.3):** In the abstract single-call constant-evidence model, all four frequency variables produce identical behavioral outcomes. The integer-tick scheduler (Task 3.1) always fires all gates at tick=0, establishing a committed decision regardless of frequency. Behavioral metrics (RT, error rates) are flat across {10, 20, 40, 80, 160} Hz for all four knobs and all four task paradigms.
+
+**Primary variable assignment:** `output_emission_hz` is the theoretically assigned primary variable. Rationale:
+- Direct nrp-core binding: maps to `EngineTimestep` of the BG engine (§15.4).
+- Most interpretable: governs when the thalamus/downstream sees updated BG decisions.
+- Phase 5 sweep will vary this knob as the canonical "BG effective update frequency".
+
+**Convenience parameter:** `FrequencyConfig.from_effective_hz(hz)` sets all four knobs to `hz` for Phase 5 sweep experiments. Individual knob dissociation will become measurable in Phase 4 (time-varying cortical evidence generator).
+
+**M3 acceptance status:**
+- Four frequencies independently configurable: ✓ (FrequencyConfig, Task 3.1)
+- Timing perturbations implemented: ✓ (Task 3.2)
+- Ablation identifies primary variable with evidence: ✓ (null result documented; primary variable assigned from nrp-core theory)
+
 ## 6. Data schemas (Stage 0 deliverables)
 
 These schemas must exist before any neural model is attached:
