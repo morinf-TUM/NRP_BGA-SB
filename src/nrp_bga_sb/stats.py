@@ -22,17 +22,8 @@ def bootstrap_ci(
 ) -> tuple[float, float]:
     """Percentile bootstrap CI for the mean of `values`.
 
-    Args:
-        values:      Sample values to bootstrap over.
-        n_bootstrap: Number of resamples (default 2000 for stable CIs).
-        alpha:       Total tail probability (default 0.05 → 95% CI).
-        rng_seed:    Seed for reproducibility across calls.
-
-    Returns:
-        (lower_bound, upper_bound) confidence interval.
-
-    Raises:
-        ValueError: if values is empty.
+    Raises ValueError if values is empty. Uses percentile method (pure numpy).
+    rng_seed guarantees deterministic results across calls.
     """
     if not values:
         raise ValueError("bootstrap_ci requires at least one value")
@@ -56,16 +47,8 @@ def aggregate_by_frequency(
 ) -> dict[float, dict]:
     """Group results by frequency_hz and compute mean ± 95% CI for one metric.
 
-    Args:
-        results:        All sweep condition results.
-        metric:         Attribute name on SweepConditionResult (e.g. "miss_rate").
-        paradigm:       Optional filter (e.g. "go_nogo").
-        conflict_level: Optional filter (e.g. "medium").
-
-    Returns:
-        Dict mapping frequency_hz (sorted ascending) →
-        {"mean": float, "ci_lo": float, "ci_hi": float, "n": int}.
-        Frequencies where all values are None are omitted.
+    Returns dict mapping frequency_hz → {"mean", "ci_lo", "ci_hi", "n"}.
+    Frequencies where all values are None are omitted.
     """
     filtered = results
     if paradigm is not None:
@@ -92,17 +75,10 @@ def aggregate_by_frequency(
 
 
 def fit_frequency_slope(curves: dict[float, dict]) -> float:
-    """OLS slope of metric ~ log(frequency_hz) via ordinary least squares.
+    """OLS slope of metric ~ log(frequency_hz).
 
-    This is a GLM proxy for error probabilities: a positive slope means
-    the metric increases with frequency (e.g. success_rate rises); negative
-    means it decreases (e.g. miss_rate falls with frequency).
-
-    Args:
-        curves: Output of aggregate_by_frequency; keys are frequency_hz values.
-
-    Returns:
-        Slope coefficient. Returns 0.0 if fewer than 2 frequency points.
+    GLM proxy: positive slope → metric rises with frequency; negative → falls.
+    Returns 0.0 if fewer than 2 frequency points.
     """
     if len(curves) < 2:
         return 0.0
@@ -128,11 +104,9 @@ def reproducibility_check(
 ) -> bool:
     """Verify two sweep result sets are element-wise identical within tolerance.
 
-    Matches by (frequency_hz, conflict_level, paradigm, seed) key.
-    Checks miss_rate, go_success_rate, wrong_target_rate, timeout_rate,
-    false_alarm_rate. Returns True only if all matched pairs agree.
+    Matches by (frequency_hz, conflict_level, paradigm, seed) key. Returns True
+    only if all matched pairs agree on the five key rate metrics.
     """
-
     def _key(r: SweepConditionResult) -> tuple:
         return (r.frequency_hz, r.conflict_level, r.paradigm, r.seed)
 
@@ -142,13 +116,7 @@ def reproducibility_check(
     if set(map_a.keys()) != set(map_b.keys()):
         return False
 
-    checked = [
-        "miss_rate",
-        "go_success_rate",
-        "wrong_target_rate",
-        "timeout_rate",
-        "false_alarm_rate",
-    ]
+    checked = ["miss_rate", "go_success_rate", "wrong_target_rate", "timeout_rate", "false_alarm_rate"]  # noqa: E501
     for k in map_a:
         ra, rb = map_a[k], map_b[k]
         for m in checked:
@@ -186,7 +154,6 @@ def format_sweep_report(
     for paradigm, (metric_key, metric_label) in paradigm_metrics.items():
         lines.append(f"Paradigm: {paradigm}  |  Primary metric: {metric_label}")
         lines.append("-" * 60)
-
         header = (
             f"  {'Conflict':<10} {'Freq (Hz)':<12} {'Mean':>8} {'CI lo':>8} {'CI hi':>8} {'N':>5}"
         )
