@@ -59,6 +59,7 @@ class StopSignalConfig:
     Attributes:
         n_trials: total number of trials to run.
         stop_proportion: fraction of trials labeled as stop (typically 0.25).
+            Must be in [0.0, 1.0].
         initial_ssd_ms: starting SSD value in ms (staircase or fixed).
         ssd_step_ms: staircase step size in ms; SSD moves by this amount after each stop trial.
         ssd_min_ms: minimum allowable SSD in ms; hard lower bound for staircase.
@@ -87,6 +88,16 @@ class StopSignalConfig:
     response_window_duration_ms: int = 700
     fixation_duration_ms: int = 200
     seed: int = 42
+
+    def __post_init__(self) -> None:
+        # Trigger: stop_proportion outside [0.0, 1.0] is a nonsensical configuration.
+        # Why: a proportion must be a probability; values outside this range would
+        #      silently corrupt trial-type assignment and staircase convergence.
+        # Outcome: raises ValueError immediately at construction time (fail fast).
+        if not (0.0 <= self.stop_proportion <= 1.0):
+            raise ValueError(
+                f"stop_proportion must be in [0.0, 1.0], got {self.stop_proportion}"
+            )
 
 
 # --- Staircase State ---
@@ -236,17 +247,19 @@ def run_stop_signal_trials(
         # All subsequent offsets (SSD, decision_point) are measured from this event.
         _record_event(trial_log, logger, EventType.go_cue, sim_time_ms=config.go_cue_onset_ms)
 
-        # --- Emit stop_signal on stop trials (if SSD before decision point) ---
-        # Trigger: this is a stop trial; stop_signal emitted at go_cue_onset + SSD.
-        # Why: the stop signal must appear in the event log before the policy is called
-        #      whenever SSD < decision_point_ms, so the policy has the information needed
-        #      to attempt inhibition. If SSD >= decision_point_ms the stop signal arrives
-        #      after the decision — inhibition is effectively impossible, but the event is
-        #      still emitted for completeness and log validity.
-        # Outcome: stop_signal event in trial_log.events with its exact sim_time,
-        #          allowing downstream computation of effective SSD per trial.
+        # --- Emit stop_signal on stop trials, only when it arrives before the decision ---
+        # Trigger: this is a stop trial AND ssd_ms < decision_point_ms.
+        # Why: if the stop signal arrives at or after the decision point (ssd_ms >=
+        #      decision_point_ms) it cannot influence the agent's response. Emitting it
+        #      would create a stop_signal event whose sim_time is >= decision_commit's
+        #      sim_time, breaking the sim_time ordering invariant for log replays that
+        #      sort events by sim_time. Omitting it preserves the invariant cleanly.
+        # Outcome: stop_signal event only appears in trial_log.events when ssd_ms <
+        #          decision_point_ms. Late-stop trials (ssd_ms >= decision_point_ms) have
+        #          no stop_signal event but are still classified as stop_failure (the agent
+        #          responded), and the staircase still updates accordingly.
         stop_signal_ms: int | None = None
-        if is_stop_trial:
+        if is_stop_trial and ssd_ms < config.decision_point_ms:
             stop_signal_ms = config.go_cue_onset_ms + ssd_ms
             _record_event(
                 trial_log,
@@ -295,6 +308,12 @@ def run_stop_signal_trials(
         # movement_onset_time is set so downstream code can compute:
         #   RT = movement_onset_time - cue_onset_time
         # This is needed for both go-RT and failed-stop-RT (Verbruggen 2019 validity).
+        #
+        # Phase 1 limitation: all movement onsets are pinned to decision_point_ms; RT
+        # variance appears only in Phase 5+ when policies produce variable decision
+        # timing. The Verbruggen failed-stop RT < go RT check is a structural tautology
+        # here (both RTs are identical) and will become meaningful once real policies
+        # have RT variance.
         if responded:
             movement_onset_ms = decision_abs_ms
             _record_event(
@@ -415,6 +434,10 @@ def _classify_trial(config: StopSignalConfig, state: StopSignalTrialState) -> No
             trial_log.failure_mode = None
     else:
         # Go trial.
+        # Phase 1: policy is always called at exactly decision_point_ms, so
+        # within_response_window is always True when a response exists. The else
+        # branch (responded but outside window) is currently unreachable and is
+        # retained as a guard for future phases where decision timing may vary.
         if responded and within_response_window:
             trial_log.success = True
             trial_log.failure_mode = None
@@ -423,5 +446,6 @@ def _classify_trial(config: StopSignalConfig, state: StopSignalTrialState) -> No
             trial_log.failure_mode = "miss"
         else:
             # Responded outside response window — treated as miss.
+            # Unreachable in Phase 1 (see comment above); kept for Phase 5+.
             trial_log.success = False
             trial_log.failure_mode = "miss"

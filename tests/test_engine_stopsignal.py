@@ -189,14 +189,20 @@ def test_staircase_decreases_after_stop_failure():
 
 
 def test_staircase_ssd_never_exceeds_max():
-    """SSD must never exceed ssd_max_ms, even after many consecutive successes."""
+    """SSD must never exceed ssd_max_ms, even after many consecutive successes.
+
+    Note: when SSD >= decision_point_ms (500), no stop_signal event is emitted
+    (late-stop invariant). We therefore use an initial SSD well below decision_point_ms
+    so early trials have visible events, and verify those stay within bounds.
+    The staircase clamping logic is unit-tested independently in StaircaseState.
+    """
     config = default_config(
         n_trials=30,
         stop_proportion=1.0,
-        initial_ssd_ms=550,
+        initial_ssd_ms=200,
         ssd_step_ms=50,
         ssd_min_ms=50,
-        ssd_max_ms=600,
+        ssd_max_ms=400,         # max well below decision_point_ms=500 for observable events
         use_staircase=True,
         seed=2,
     )
@@ -207,7 +213,8 @@ def test_staircase_ssd_never_exceeds_max():
         for ev in t.events
         if ev.event_type == EventType.stop_signal
     ]
-    assert all(v <= 600 for v in ssd_values), f"SSD exceeded max: {max(ssd_values)}"
+    assert len(ssd_values) > 0, "Expected at least some stop_signal events"
+    assert all(v <= 400 for v in ssd_values), f"SSD exceeded max: {max(ssd_values)}"
 
 
 def test_staircase_ssd_never_below_min():
@@ -258,8 +265,20 @@ def test_fixed_ssd_mode_ssd_never_changes():
 
 
 def test_stop_trials_have_stop_signal_event():
-    """Every stop trial must contain exactly one stop_signal event."""
-    config = default_config(n_trials=40, seed=5)
+    """Stop trials where SSD < decision_point_ms must contain exactly one stop_signal event.
+
+    Trials where SSD >= decision_point_ms do NOT emit a stop_signal event (the signal
+    arrives too late to affect the decision; emitting it would violate the sim_time
+    ordering invariant for log replays).
+    """
+    # Use a config where SSD is well below decision_point_ms so all stop trials
+    # have an early stop signal.
+    config = default_config(
+        n_trials=40,
+        initial_ssd_ms=200,    # 200 < decision_point_ms=500 → event always emitted
+        use_staircase=False,
+        seed=5,
+    )
     trials = run_stop_signal_trials(config, always_go_policy)
     stop_trials = [t for t in trials if t.cue_identity == "stop"]
     for t in stop_trials:
@@ -279,6 +298,58 @@ def test_go_trials_have_no_stop_signal_event():
         assert ss_events == [], (
             f"Trial {t.trial_id} (go) unexpectedly has stop_signal events"
         )
+
+
+def test_late_stop_signal_not_emitted():
+    """When SSD >= decision_point_ms, no stop_signal event must appear in the trial log.
+
+    The stop signal arrives at or after the decision point, so it cannot affect
+    the agent's response. Emitting it would place an event with sim_time >=
+    decision_commit's sim_time, breaking the sim_time ordering invariant for log
+    replays. The trial is still classified as stop_failure (agent responded), and
+    the staircase updates normally.
+    """
+    # SSD == decision_point_ms: signal arrives exactly at decision, still too late.
+    config = default_config(
+        n_trials=20,
+        stop_proportion=1.0,
+        initial_ssd_ms=500,    # == decision_point_ms
+        use_staircase=False,
+        decision_point_ms=500,
+        seed=30,
+    )
+    trials = run_stop_signal_trials(config, always_go_policy)
+
+    for t in trials:
+        ss_events = [ev for ev in t.events if ev.event_type == EventType.stop_signal]
+        assert ss_events == [], (
+            f"Trial {t.trial_id}: stop_signal event emitted for late-stop trial "
+            f"(ssd_ms=500 >= decision_point_ms=500)"
+        )
+        # Trial must still be classified as stop_failure — agent responded.
+        assert t.success is False, f"Trial {t.trial_id}: expected stop_failure success=False"
+        assert t.failure_mode == "stop_failure", (
+            f"Trial {t.trial_id}: expected failure_mode=stop_failure, "
+            f"got {t.failure_mode}"
+        )
+
+    # Also verify SSD strictly greater than decision_point_ms is handled the same way.
+    config_late = default_config(
+        n_trials=10,
+        stop_proportion=1.0,
+        initial_ssd_ms=600,    # > decision_point_ms
+        use_staircase=False,
+        decision_point_ms=500,
+        seed=31,
+    )
+    trials_late = run_stop_signal_trials(config_late, always_go_policy)
+    for t in trials_late:
+        ss_events = [ev for ev in t.events if ev.event_type == EventType.stop_signal]
+        assert ss_events == [], (
+            f"Trial {t.trial_id}: stop_signal event emitted for late-stop trial "
+            f"(ssd_ms=600 >= decision_point_ms=500)"
+        )
+        assert t.failure_mode == "stop_failure"
 
 
 # --- Test 6: Stop-signal event timing ---
@@ -462,6 +533,12 @@ def test_failed_stop_rt_recoverable_from_log():
     Verbruggen et al. 2019 validity: RT_failed_stop should be faster than RT_go on average.
     This test verifies the data is present and consistent; the actual validity criterion
     is an empirical property of the policy (not enforced by the engine).
+
+    NOTE (Phase 1 limitation): all movement_onset_time values are pinned to
+    decision_point_ms, so failed-stop RT and go RT are structurally identical here.
+    The RT_failed_stop < RT_go Verbruggen validity check is a tautology in Phase 1
+    and will only become a meaningful empirical test once policies produce variable
+    decision timing (Phase 5+).
     """
     config = default_config(
         n_trials=40,
