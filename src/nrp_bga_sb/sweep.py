@@ -42,7 +42,8 @@ Paradigm = Literal["go_nogo", "two_choice"]
 CONFLICT_PEAK_SALIENCE: dict[str, float] = {
     "low": 0.85,  # tick 100 → 0.675 → selects at 10 Hz (> GPR threshold ~0.600)
     "medium": 0.69,  # tick 100 → 0.595 → miss; tick 150 → 0.643 → selects at 20 Hz
-    "high": 0.68,  # tick 100 → 0.590 → miss; tick 150 → 0.635 → selects at 20 Hz
+    # tick 100 → 0.560 → miss; tick 175 (40 Hz) → 0.605 → miss; tick 192 (80 Hz) → 0.615 → selects
+    "high": 0.62,
 }
 
 # Default sweep timing parameters (see module docstring).

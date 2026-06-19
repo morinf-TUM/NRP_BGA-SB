@@ -84,7 +84,7 @@ def test_high_freq_low_conflict_go_nogo_minimal_misses():
 
 
 def test_low_freq_medium_conflict_go_nogo_misses():
-    """10 Hz + medium conflict: BG fires at tick 0,100 → max salience 0.610 < 0.65 → all misses."""
+    """10 Hz + medium conflict: BG fires at tick 0,100 → max salience 0.595 < 0.607 → all misses."""
     result = run_condition(10.0, "medium", "go_nogo", n_trials=30, seed=42)
     assert result.miss_rate is not None
     # All go trials miss because tick 100 gives [0.610, 0.390] below GPR threshold
@@ -96,6 +96,22 @@ def test_frequency_conflict_interaction():
     low_10hz = run_condition(10.0, "low", "go_nogo", n_trials=30, seed=42)
     med_10hz = run_condition(10.0, "medium", "go_nogo", n_trials=30, seed=42)
     assert low_10hz.go_success_rate > med_10hz.go_success_rate
+
+
+def test_40hz_high_conflict_go_nogo_misses():
+    """40 Hz + high conflict: tick 175 → salience 0.605 < 0.607 threshold → all misses."""
+    result = run_condition(40.0, "high", "go_nogo", n_trials=30, seed=42)
+    assert result.miss_rate is not None
+    assert result.miss_rate > 0.8, f"miss_rate={result.miss_rate} too low at 40Hz/high"
+
+
+def test_80hz_high_conflict_go_nogo_succeeds():
+    """80 Hz + high conflict: tick 192 → salience 0.615 > 0.607 threshold → go trials succeed."""
+    result = run_condition(80.0, "high", "go_nogo", n_trials=30, seed=42)
+    assert result.go_success_rate is not None
+    assert result.go_success_rate > 0.8, (
+        f"go_success_rate={result.go_success_rate} too low at 80Hz/high"
+    )
 
 
 def test_false_alarm_rate_low_regardless_of_frequency():
