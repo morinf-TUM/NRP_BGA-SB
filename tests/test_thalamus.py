@@ -110,13 +110,14 @@ def test_gate_partial_gain_is_linearly_interpolated() -> None:
     assert cmd.gate_gain == pytest.approx(0.5)
 
 
-def test_gate_partial_gain_at_margin_threshold_is_zero() -> None:
-    # At exactly margin_threshold, gain = 0 (just opened, no amplitude yet)
+def test_gate_closed_at_margin_threshold() -> None:
+    # At exactly margin_threshold, gate closes. A margin at the boundary
+    # is not enough to open — it is the threshold of closure.
     cfg = ThalamusConfig(margin_threshold=0.1, full_open_threshold=0.3)
     gate = ThalamusGate(cfg)
     dec = _make_bg_decision(selected_channel=0, decision_margin=0.1)
     cmd = gate(dec)
-    assert cmd.gate_state == "partial"
+    assert cmd.gate_state == "closed"
     assert cmd.gate_gain == pytest.approx(0.0)
 
 
@@ -198,14 +199,14 @@ def test_motor_command_is_valid_schema(gate: ThalamusGate) -> None:
 # --- Boundary: equal thresholds (degenerate "snap" gate) ---
 
 
-def test_snap_gate_is_open_at_margin_equals_threshold() -> None:
-    # When margin_threshold == full_open_threshold, the partial range is empty.
-    # A margin at exactly that threshold enters "partial" but gain computation
-    # has a zero-width span; check that it snaps to gate_open.
+def test_snap_gate_is_closed_when_thresholds_equal() -> None:
+    # When margin_threshold == full_open_threshold, there is no partial range.
+    # A margin at exactly the threshold is treated as closed (at the boundary).
+    # To reach "open", margin must exceed the threshold.
     cfg = ThalamusConfig(margin_threshold=0.2, full_open_threshold=0.2)
     gate = ThalamusGate(cfg)
     dec = _make_bg_decision(selected_channel=0, decision_margin=0.2)
     cmd = gate(dec)
-    # margin >= full_open_threshold → "open"
-    assert cmd.gate_state == "open"
-    assert cmd.gate_gain == pytest.approx(1.0)
+    # margin <= margin_threshold → "closed"
+    assert cmd.gate_state == "closed"
+    assert cmd.gate_gain == pytest.approx(0.0)

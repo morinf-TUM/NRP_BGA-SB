@@ -126,7 +126,7 @@ class ThalamusGate:
         # Why: a weak BG decision (small margin) does not warrant full motor
         #      release; the gain ramp models gradual thalamocortical recruitment.
         # Outcome: gate_state and gate_gain set according to the regime.
-        if margin < cfg.margin_threshold:
+        if margin <= cfg.margin_threshold:
             gate_state = "closed"
             gain = 0.0
         elif margin < cfg.full_open_threshold:
