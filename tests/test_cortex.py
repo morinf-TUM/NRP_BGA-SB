@@ -290,3 +290,86 @@ def test_switch_cue_maps_to_channel_0_for_pre_switch() -> None:
     trial = _make_trial("switch_early", task_type="change_of_mind")
     ev = gen(trial, 100.0)
     assert ev.channel_salience[0] > ev.channel_salience[1]
+
+
+# --- Post-switch evidence direction tests (Task 5.0) ---
+
+
+def _make_switch_log_post(cue_identity: str = "switch_early", seed: int = 1) -> TrialLog:
+    """TrialLog for a switch trial that has already seen evidence_change."""
+    log = TrialLog(
+        trial_id=1,
+        seed=seed,
+        task_type="change_of_mind",
+        cue_identity=cue_identity,
+        cue_onset_time=0.0,
+    )
+    log.events.append(
+        TaskEvent(
+            event_type=EventType.evidence_change,
+            sim_time=0.05,
+            real_time=0.05,
+            trial_id=1,
+            payload={},
+        )
+    )
+    return log
+
+
+def test_switch_pre_switch_prefers_channel_0():
+    """Before evidence_change, switch_* maps to channel 0."""
+    gen = CortexEvidenceGenerator(CortexConfig(rise_time_ms=100.0))
+    log = TrialLog(
+        trial_id=1,
+        seed=1,
+        task_type="change_of_mind",
+        cue_identity="switch_early",
+        cue_onset_time=0.0,
+    )
+    ev = gen(log, 50.0)
+    assert ev.channel_salience[0] > ev.channel_salience[1]
+
+
+def test_switch_post_switch_prefers_channel_1():
+    """After evidence_change, switch_* maps to channel 1."""
+    gen = CortexEvidenceGenerator(CortexConfig(rise_time_ms=100.0))
+    log = _make_switch_log_post("switch_early")
+    ev = gen(log, 50.0)
+    assert ev.channel_salience[1] > ev.channel_salience[0]
+
+
+def test_switch_post_switch_all_categories():
+    """All switch_* cue_identity categories reverse after evidence_change."""
+    gen = CortexEvidenceGenerator(CortexConfig(rise_time_ms=100.0))
+    for cue in ["switch_early", "switch_medium", "switch_late"]:
+        log = _make_switch_log_post(cue)
+        ev = gen(log, 50.0)
+        assert ev.channel_salience[1] > ev.channel_salience[0], (
+            f"{cue}: post-switch should prefer channel 1"
+        )
+
+
+def test_non_switch_unaffected_by_evidence_change():
+    """evidence_change event has no effect on non-switch cue_identities."""
+    gen = CortexEvidenceGenerator(CortexConfig(rise_time_ms=100.0))
+    for cue in ["go", "left", "no_switch"]:
+        log = TrialLog(
+            trial_id=1,
+            seed=1,
+            task_type="go_nogo",
+            cue_identity=cue,
+            cue_onset_time=0.0,
+        )
+        log.events.append(
+            TaskEvent(
+                event_type=EventType.evidence_change,
+                sim_time=0.05,
+                real_time=0.05,
+                trial_id=1,
+                payload={},
+            )
+        )
+        ev = gen(log, 50.0)
+        assert ev.channel_salience[0] > ev.channel_salience[1], (
+            f"{cue}: evidence_change must not change channel direction"
+        )

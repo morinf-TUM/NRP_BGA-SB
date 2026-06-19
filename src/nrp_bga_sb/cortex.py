@@ -83,12 +83,12 @@ class CortexConfig(BaseModel):
 # Maps cue_identity string → preferred channel index (0 or 1) or None (withhold).
 # None means both channels stay at base_salience so BG cannot select either channel.
 _PREFERRED_CHANNEL: dict[str, int | None] = {
-    "go":        0,     # go/no-go: action channel is 0
-    "no_go":     None,  # BG should withhold; no directed cortical drive
-    "left":      0,     # two-choice: left target = channel 0
-    "right":     1,     # two-choice: right target = channel 1
-    "stop":      None,  # stop-signal stop trial: BG should withhold
-    "no_switch": 0,     # change-of-mind baseline: action channel is 0
+    "go": 0,  # go/no-go: action channel is 0
+    "no_go": None,  # BG should withhold; no directed cortical drive
+    "left": 0,  # two-choice: left target = channel 0
+    "right": 1,  # two-choice: right target = channel 1
+    "stop": None,  # stop-signal stop trial: BG should withhold
+    "no_switch": 0,  # change-of-mind baseline: action channel is 0
 }
 
 
@@ -97,8 +97,8 @@ def _preferred_channel_from_cue(cue_identity: str) -> int | None:
 
     Handles switch_* cue_identities (change-of-mind switch trials) by
     mapping all switch categories to channel 0 (initial pre-switch direction).
-    Post-switch redirection is not modelled here; it requires a switch-aware
-    evidence generator planned for Phase 5.
+    Post-switch redirection is handled in `CortexEvidenceGenerator.__call__`
+    by scanning trial_log.events.
     """
     if cue_identity in _PREFERRED_CHANNEL:
         return _PREFERRED_CHANNEL[cue_identity]
@@ -145,6 +145,20 @@ class CortexEvidenceGenerator:
         cfg = self._config
         preferred = _preferred_channel_from_cue(trial_log.cue_identity)
 
+        # --- Post-switch direction reversal for change-of-mind switch trials ---
+        # Trigger: cue_identity is a switch variant AND evidence_change is already
+        #          in the log, meaning the engine has crossed the switch point and
+        #          is making the second (post-switch) policy call.
+        # Why: CortexEvidenceGenerator is stateless; the only reliable signal that
+        #      the post-switch call is happening is the presence of evidence_change
+        #      in trial_log.events (logged by the engine at switch_delay_ms).
+        # Outcome: preferred channel flips 0 → 1, driving the BG toward the new
+        #          target so it can produce a correct switch response.
+        if preferred == 0 and trial_log.cue_identity.startswith("switch_"):
+            has_switched = any(e.event_type == EventType.evidence_change for e in trial_log.events)
+            if has_switched:
+                preferred = 1
+
         # Linear ramp: frac ∈ [0.0, 1.0] rises over rise_time_ms.
         frac = min(1.0, max(0.0, elapsed_ms / cfg.rise_time_ms))
 
@@ -162,9 +176,7 @@ class CortexEvidenceGenerator:
             preferred_sal = cfg.base_salience + (cfg.peak_salience - cfg.base_salience) * frac
             competing_sal = 1.0 - preferred_sal
             ch = (
-                [preferred_sal, competing_sal]
-                if preferred == 0
-                else [competing_sal, preferred_sal]
+                [preferred_sal, competing_sal] if preferred == 0 else [competing_sal, preferred_sal]
             )
 
         # --- Optional reproducible noise ---
@@ -178,9 +190,7 @@ class CortexEvidenceGenerator:
         # Why: the stop-signal flag in ActionEvidence triggers a policy-level
         #      veto in BGAdapter without requiring evidence manipulation.
         # Outcome: stop_signal_present=True propagates to BGAdapter → -1 return.
-        stop_signal_present = any(
-            e.event_type == EventType.stop_signal for e in trial_log.events
-        )
+        stop_signal_present = any(e.event_type == EventType.stop_signal for e in trial_log.events)
 
         return ActionEvidence(
             sim_time=trial_log.cue_onset_time + elapsed_ms / 1000.0,
