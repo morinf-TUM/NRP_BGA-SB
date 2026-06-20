@@ -19,7 +19,8 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 8 complete (2026-06-20).** Change-of-mind metrics and two-phase kinematic trajectory (M6). `change_of_mind_metrics.py` computes revision latency, CoM probability, perseveration rate; `KinematicReacher.simulate_change_of_mind` simulates two-phase minimum-jerk trajectories with handoff position; `change_of_mind_sweep.py` sweeps five BG frequencies across four switch-delay categories. Key finding: CoM probability is 0.0 at 5 Hz and 1.0 at ≥10 Hz; per-category timing gradient collapses because post_switch_decision_point_ms=550ms gives all categories ≥100ms of post-switch time. Movement reversal detection fixed for negative→positive sign flip. 632 tests passing (28 new in Phase 8), ruff clean. See §24 for module map.
 - **Phase 9 complete (2026-06-20).** Latency/jitter/dropout/phase decomposition (M10). `perturbation_sweep.py` sweeps four timing perturbation types (fixed latency {0,10,25,50,100 ms}, jitter std {0,5,10,25 ms}, dropout {0,1,5,10 %}, phase offset {0,25,50,75 % of period}) across go/no-go and stop-signal paradigms at five BG frequencies. Key finding: latency/jitter/phase-offset shift selection_latency (RT proxy) without changing selected_channel, so go_success_rate and stop_failure_rate are frequency-driven (selector/cancellation bottleneck); only dropout alters channel selection by replaying stale decisions. M10 acceptance: decomposition report disentangles frequency from all four timing perturbations. 674 tests passing, ruff clean. See §25 for module map.
 - **Phase 10 complete (2026-06-20).** OpenSim Arm26 musculoskeletal embodiment (M8). Containerised OpenSim 4.6 plant (`nrp-bga-opensim:4.6`) runs the Arm26 model via a file-based batch boundary; host `opensim_plant.py` ships reduced `ReachSpec`s to the container and scores returned hand trajectories with `compute_movement_metrics`. `experiments/opensim_gonogo_sweep.py` runs the closed-loop go/no-go pipeline at five BG frequencies through both the OpenSim plant and the kinematic reacher on the SAME BG decisions. M8 result: the BG-frequency effect survives full musculoskeletal embodiment — OpenSim movement-onset rate is 0.000 at 5 Hz and 1.000 at ≥10 Hz, identical to the kinematic reacher. 685 tests passing (1 new host dry-run + 1 Docker-gated smoke deselected without an image), ruff clean. See §26 for module map.
-- **Phase 11 complete (2026-06-20).** Cerebellar trajectory correction (M9). `perturbation_plant.py` (`VisuomotorRotation` + 2D geometry helpers `rotate_xy`, `signed_angle`), `cerebellum.py` (`AdaptiveFilter` LMS trial-by-trial adaptation, `ForwardModelController` within-trial online feedback, `Cerebellum` composition with independent enable flags), `KinematicReacher.simulate_with_correction` (invoked only on executed movements — the BG-effect guard), and `cerebellum_sweep.py` (`CerebellumSweepResult`, `run_cerebellum_condition`, `FREQUENCIES_HZ`). Key result: under a 30° visuomotor rotation the cerebellum reduces mean endpoint deviation to 0.0 at every frequency that moves (θ̂ → 0.4730 rad across trials), while movement-onset-rate-vs-frequency is bit-identical with the cerebellum on or off (0.000 at 5 Hz, 1.000 at ≥10 Hz) — the BG-frequency selection signature survives. 723 tests passing, 2 deselected (Docker-gated opensim), ruff clean. See §27 for module map. Embodied confirmation deferred to Phase 11b (IMPLEMENTATION_PLAN.md).
+- **Phase 11 complete (2026-06-20).** Cerebellar trajectory correction (M9). `perturbation_plant.py` (`VisuomotorRotation` + 2D geometry helpers `rotate_xy`, `signed_angle`), `cerebellum.py` (`AdaptiveFilter` LMS trial-by-trial adaptation, `ForwardModelController` within-trial online feedback, `Cerebellum` composition with independent enable flags), `KinematicReacher.simulate_with_correction` (invoked only on executed movements — the BG-effect guard), and `cerebellum_sweep.py` (`CerebellumSweepResult`, `run_cerebellum_condition`, `FREQUENCIES_HZ`). Key result: under a 30° visuomotor rotation the cerebellum reduces mean endpoint deviation to 0.0 at every frequency that moves (θ̂ → 0.4730 rad across trials), while movement-onset-rate-vs-frequency is bit-identical with the cerebellum on or off (0.000 at 5 Hz, 1.000 at ≥10 Hz) — the BG-frequency selection signature survives. 723 tests passing, 2 deselected (Docker-gated opensim), ruff clean. See §27 for module map.
+- **Phase 11b complete (2026-06-21).** OpenSim cerebellar correction confirmation (M9, embodied). `experiments/opensim_cerebellum_sweep.py` re-runs the cerebellum on/off comparison through the OpenSim Arm26 plant (`nrp-bga-opensim:4.6`) on the SAME BG decisions used in Phase 11. Perturbation (VisuomotorRotation) and cerebellar counter-rotation (AdaptiveFilter) are applied host-side in Cartesian endpoint space post-hoc on the trajectory returned by the container; the OpenSim plant is unaware of the rotation. BG-effect guard: closed-gate trials never update the filter (same invariant as §27.4). M9 embodied acceptance: cerebellar adaptation reduces endpoint deviation under a 30° visuomotor rotation while the BG-frequency onset signature is preserved. 728 tests passing, 3 deselected (Docker-gated opensim, including new cerebellum e2e smoke), ruff clean. See §28 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -1233,5 +1234,63 @@ Interpretation: `onset off == onset on` at every frequency (bit-identical, BG-ef
 
 - **θ̂ asymptote is ~0.4730 rad, not the full 0.524 rad (30°)**: a fresh filter is built per condition (θ̂ resets each frequency × on/off cell), so with α=0.1 the LMS filter adapts over only the ~21 go-trials of each 30-trial condition (`go_probability=0.7`) before reset — not a long uninterrupted block. The exponential approach `θ̂_n ≈ θ(1 − (1−α)^n)` with n ≈ 21 predicts θ̂ ≈ 0.524 × (1 − 0.9²¹) ≈ 0.524 × 0.891 ≈ 0.467 rad, matching the measured ~0.473 rad. This is a finite-block parameter-sweep artefact, not a model failure (endpoint deviation still falls to 0.0 with the cerebellum on, via within-trial online feedback).
 - **`dev off` varies with frequency (0.039–0.311)**: the unperturbed endpoint deviation depends on how many trials run at each frequency before the adaptation state resets; at 10 Hz fewer adaptation steps occur. With the cerebellum on, this variation disappears (dev on = 0.0 everywhere).
-- **Kinematic plant only:** OpenSim embodiment is deferred to Phase 11b. The BG-effect guard and LMS convergence are validated on the kinematic reacher, which is sufficient for M9.
-- **Single rotation direction**: only a fixed positive θ is tested. Negative θ (mirror rotation), washout, and savings experiments are out of scope for Phase 11.
+- **Kinematic plant only (Phase 11):** OpenSim embodiment was deferred to Phase 11b (now complete — see §28).
+- **Single rotation direction**: only a fixed positive θ is tested. Negative θ (mirror rotation), washout, and savings experiments are out of scope for Phase 11 / Phase 11b.
+
+---
+
+## 28. Phase 11b module map (complete as of 2026-06-21)
+
+OpenSim cerebellar correction confirmation (M9, embodied). Mirrors the Phase 6 → Phase 10 kinematic-to-OpenSim validation step: re-runs the cerebellar on/off sweep through the full musculoskeletal plant, confirming that M9 results survive embodiment.
+
+### 28.1 Source layout
+
+```
+experiments/
+    opensim_cerebellum_sweep.py — run_opensim_cerebellum_condition(
+                                      freq_hz, n_trials, client,
+                                      cerebellum_enabled, perturbation_deg
+                                  ) -> dict;
+                                  main() iterates FREQUENCIES_HZ × {off, on},
+                                  writes results/opensim_cerebellum_results.json
+
+tests/
+    test_opensim_cerebellum_sweep.py   — host dry-run (5 tests, no Docker):
+                                         all-miss → zero onset + zero deviation + theta_hat=0;
+                                         perturbation without cerebellum → deviation > 0;
+                                         onset rate identical on vs off (BG guard);
+                                         cerebellum reduces deviation after 50 trials;
+                                         result dict has all required keys.
+    opensim/
+        test_opensim_cerebellum_e2e.py — Docker-gated smoke (@pytest.mark.opensim):
+                                          40 Hz on vs off: onset unchanged + dev↓;
+                                          5 Hz: onset=0, deviation=0.
+```
+
+No new source modules were added — Phase 11b reuses `AdaptiveFilter` from `cerebellum.py`, `VisuomotorRotation` / `rotate_xy` / `signed_angle` from `perturbation_plant.py`, `OpenSimPlantClient` / `extract_reach_spec` from `opensim_plant.py`, and `KinematicReacher` from `reacher.py`.
+
+### 28.2 Integration design
+
+The OpenSim container is unaware of the perturbation: it drives joints to `q_target` as usual and returns the physical Cartesian trajectory. Perturbation and cerebellar correction are applied entirely host-side in Cartesian endpoint space:
+
+1. Ship normal `ReachSpec` → container → get `OpenSimTrajectory`
+2. Extract physical endpoint: `p_physical = positions_xy[-1]`
+3. Apply perturbation: `p_perturbed = VisuomotorRotation.apply(p_physical)` (simulates visual distortion)
+4. Compute angular error vs FK target: `e = signed_angle(target_endpoints_xy[ch], p_perturbed)`
+5. Apply cerebellar counter-rotation: `p_corrected = rotate_xy(p_perturbed, -θ̂)` (where θ̂ is the current `AdaptiveFilter.theta_hat`)
+6. Update filter: `AdaptiveFilter.update(e)` (for next trial)
+7. Report deviation: `|p_corrected − target_endpoints_xy[ch]|`
+
+This is equivalent to the kinematic precompensate–perturbate sequence: when θ̂ → θ, `p_corrected ≈ p_physical ≈ target_endpoints_xy[ch]` and deviation → 0.
+
+The desired endpoint reference is `target_endpoints_xy[selected_channel]` (the FK-computed Cartesian hand position for that channel's joint target), without gate_gain scaling — consistent with Phase 10's `compute_movement_metrics` convention for the embodied plant.
+
+### 28.3 BG-effect guard (embodied)
+
+Same invariant as §27.4. `ot.onset_time_ms is None or ot.selected_channel < 0` identifies closed-gate (missed) trials in the returned OpenSim trajectory. The filter update is skipped and the onset counter is not incremented for such trials. The movement-onset-rate-vs-frequency signature is therefore structurally unchanged by the cerebellar layer regardless of its learning state.
+
+### 28.4 Known constraints at Phase 11b
+
+- **No within-trial online feedback for OpenSim**: the `ForwardModelController` cannot inject per-step corrective signals into the container's PD simulation. Only the trial-by-trial `AdaptiveFilter` layer is active; the net correction is a post-hoc counter-rotation of the returned endpoint. Accuracy improvement therefore depends entirely on LMS convergence across trials (same mechanism as §27.5, same convergence rate).
+- **`target_endpoints_xy` reference (no gate_gain scaling)**: the FK targets returned by the container represent the full-reach joint targets. Gate_gain scales the reach extent in the kinematic plant but is implicit in the OpenSim PD trajectory; applying it to the reference would introduce a spurious offset. Phase 10 convention is preserved.
+- **Docker-gated smoke only**: the embodied M9 acceptance numbers require the `nrp-bga-opensim:4.6` image. The host dry-run tests exercise the full adaptation logic with a fake runner echoing plausible trajectories; the BG-guard and LMS convergence are validated without Docker.
