@@ -100,3 +100,10 @@ def test_client_fails_fast_on_trial_id_mismatch(tmp_path):
     with pytest.raises(ValueError, match="trial_id"):
         client.run([ReachSpec(trial_id="not_in_fixture", selected_channel=0,
                               onset_time_ms=0.0, gate_gain=1.0, gate_state="open")])
+
+
+def test_client_fails_fast_on_missing_output(tmp_path):
+    client = OpenSimPlantClient(_cfg(), io_dir=tmp_path, runner=lambda argv: 0)
+    with pytest.raises(RuntimeError, match="no output"):
+        client.run([ReachSpec(trial_id="x", selected_channel=0, onset_time_ms=0.0,
+                              gate_gain=1.0, gate_state="open")])
