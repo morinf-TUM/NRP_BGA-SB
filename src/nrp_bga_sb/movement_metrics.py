@@ -96,7 +96,15 @@ def compute_movement_metrics(
         safe_dt = np.where(dt > 0.0, dt, np.inf)
         proj_vel = (dpos @ unit_dir) / safe_dt  # (n-1,)
         for i in range(1, len(proj_vel)):
-            if proj_vel[i - 1] > 1e-9 and proj_vel[i] < -1e-9:
+            if (
+                (proj_vel[i - 1] > 1e-9 and proj_vel[i] < -1e-9)
+                or (proj_vel[i - 1] < -1e-9 and proj_vel[i] > 1e-9)
+            ):
+                # Trigger: velocity projection changes sign in either direction.
+                # Why: single-command trajectories only reverse pos→neg (monotone min-jerk);
+                #      change-of-mind two-phase trajectories reverse neg→pos (away from ch0,
+                #      then toward ch1). Both directions constitute a genuine reversal.
+                # Outcome: reversal_time_ms is set for all sign changes, not just pos→neg.
                 movement_reversal_time_ms = float(times[i + 1])
                 break
 

@@ -940,3 +940,65 @@ SSRT estimation (mean-SSD method, Verbruggen 2019): `SSRT = mean go RT − mean 
 - **`ssd_levels` with staircase**: `ssd_levels` is ignored when `use_staircase=True`; fixed multi-SSD schedule requires `use_staircase=False, ssd_levels=[...]`.
 - **Late-stop identification with `stop_trial_go_evidence=True`**: late-stop successes (`cue_identity="go"`, `success=True`, no stop_signal event) are indistinguishable from go-success trials in the log. This case is rare in practice (directed go evidence causes BG selection; late-stop success would require BG returning −1 spontaneously).
 - **`reversal_time_ms`** and **`trajectory_curvature`** limitations from Phase 6 still apply to any reacher integration in Phase 8.
+
+---
+
+## 24. Phase 8 module map and findings
+
+### 24.1 Source layout
+
+```
+src/nrp_bga_sb/
+    change_of_mind_metrics.py — is_switch_trial, revision_latency_ms,
+                                 ChangeOfMindMetrics, compute_change_of_mind_metrics (Task 8.1)
+    reacher.py                — EXTENDED: KinematicReacher.simulate_change_of_mind (Task 8.2)
+    reacher_sweep.py          — EXTENDED: ChangeOfMindReacherResult,
+                                 run_change_of_mind_reacher_condition (Task 8.2)
+    change_of_mind_sweep.py   — ChangeOfMindSweepResult, run_change_of_mind_condition,
+                                 format_sweep_report (Task 8.3)
+experiments/
+    change_of_mind_sweep.py   — BG-frequency sweep experiment (Task 8.3)
+tests/
+    test_change_of_mind_metrics.py  — 11 tests for behavioral metrics (Task 8.1)
+    test_reacher_sweep.py           — EXTENDED: 8 new tests for two-phase trajectory (Task 8.2)
+    test_change_of_mind_sweep.py    — 8 tests for sweep library (Task 8.3)
+```
+
+### 24.2 Change-of-mind metrics (Task 8.1)
+
+- **`is_switch_trial(trial)`**: scans events for `EventType.evidence_change`.
+- **`revision_latency_ms(trial)`**: time (ms) from `evidence_change` event to `post_switch` `decision_commit` event. Returns None for no-switch trials; raises ValueError on integrity violations.
+- **`ChangeOfMindMetrics`**: `change_of_mind_probability`, `perseveration_rate`, `wrong_final_target_rate`, `mean_revision_latency_ms`, `switch_success_by_category`, `perseveration_by_category`, `revision_latency_by_category`.
+- **Known constraint**: `revision_latency_by_category` returns `0.0` (not `None`) for categories where all trials are misses, because the dict type is `dict[str, float]`. Callers should cross-check with `switch_success_by_category` to detect degenerate cases.
+
+### 24.3 Two-phase trajectory (Task 8.2)
+
+- **`KinematicReacher.simulate_change_of_mind(motor_commands, pre_switch_onset_ms, switch_time_ms, total_duration_ms)`**: phase 1 runs minimum-jerk toward `motor_commands[0]` target from `pre_switch_onset_ms` to `switch_time_ms`; phase 2 runs minimum-jerk from the handoff position toward `motor_commands[1]` target for the remainder of the window. Returns a `ReacherTrajectory` with `selected_channel` = post-switch channel.
+- **`correction_cost`**: `total_path_length - ‖final_position‖` (extra distance due to reversal). Guaranteed non-negative by the triangle inequality.
+- **`movement_reversal_time_ms`** (in `compute_movement_metrics`): detects the first tick where projected velocity changes sign in **either direction** (positive→negative or negative→positive). Fixed in Phase 8 to handle the negative→positive transition characteristic of ch0→ch1 change-of-mind trajectories.
+- **`ChangeOfMindReacherResult`**: `frequency_hz`, `seed`, `n_trials`, `n_switch_trials`, `change_of_mind_probability`, `perseveration_rate`, `mean_trajectory_reversal_time_ms`, `mean_correction_cost`, `switch_success_by_category`.
+
+### 24.4 BG-frequency sweep design (Task 8.3)
+
+| Parameter | Value |
+|---|---|
+| Frequencies | 5, 10, 20, 40, 80 Hz |
+| Seeds | 5 |
+| Trials per seed | 80 (400 total per condition; M6 ≥ 300) |
+| Switch categories | early (50ms), medium (150ms), late (300ms), very_late (450ms) |
+| No-switch proportion | 0.0 (all switch trials) |
+| post_switch_decision_point_ms | 550 ms |
+| PEAK_SALIENCE | 0.85 |
+| ACCUMULATION_MS | 200 ms |
+
+### 24.5 M6 acceptance status
+
+- Change probability depends on BG frequency: ✅ (0.0 at 5 Hz → 1.0 at ≥ 10 Hz)
+- Evidence-change timing discrimination: ⚠️ (deferred — post_switch_decision_point_ms=550ms gives all categories ≥500ms of post-switch time, collapsing per-category rates; a timing-sensitive experiment requires post_switch_decision_point_ms ≈ max_switch_delay + 50ms to expose the gradient)
+- Revision latency and correction cost: ✅ (computed and present in sweep results)
+- Trajectory reversal time: ✅ (movement_reversal_time_ms now works for CoM trajectories after Phase 8 fix)
+
+### 24.6 Known constraints
+
+- All four switch categories collapse to identical rates at every frequency because the generous post-switch window (500ms for early, 100ms for very_late) is always sufficient for the BG at ≥ 10 Hz. A future experiment reducing post_switch_decision_point_ms to ~500ms (just past very_late=450ms delay) would expose a timing gradient.
+- `KinematicReacher.simulate_change_of_mind` does not model velocity continuity at the phase boundary (phase 2 starts fresh from rest at `switch_time_ms`). This simplification suffices for the Phase 8 abstract model.
