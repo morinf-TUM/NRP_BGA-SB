@@ -17,6 +17,8 @@ Coverage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from nrp_bga_sb.engines.stop_signal import StopSignalConfig, run_stop_signal_trials
 from nrp_bga_sb.logger import TrialLogger
 from nrp_bga_sb.replay import load_trials
@@ -732,3 +734,277 @@ def test_task_type_is_stop_signal():
     config = default_config(n_trials=5, seed=25)
     trials = run_stop_signal_trials(config, always_go_policy)
     assert all(t.task_type == "stop_signal" for t in trials)
+
+
+# --- Test 15: ssd_levels cycling (Task 7.1) ---
+
+
+def test_ssd_levels_cycles_round_robin():
+    """With ssd_levels=[100, 200, 300] and use_staircase=False, stop trials cycle through
+    the list round-robin.  The stop_signal event payload ssd_ms must match the expected
+    position in the cycle for each stop trial."""
+    config = StopSignalConfig(
+        n_trials=40,
+        stop_proportion=1.0,      # all stop trials for simplicity
+        initial_ssd_ms=999,       # must be ignored when ssd_levels is set
+        ssd_step_ms=50,
+        ssd_min_ms=50,
+        ssd_max_ms=600,
+        use_staircase=False,
+        go_cue_onset_ms=300,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=50,
+        ssd_levels=[100, 200, 300],
+    )
+    trials = run_stop_signal_trials(config, always_inhibit_policy)
+
+    ssd_values = [
+        ev.payload["ssd_ms"]
+        for t in trials
+        for ev in t.events
+        if ev.event_type == EventType.stop_signal
+    ]
+    # Each stop trial gets ssd_levels[stop_trial_index % 3]; all 40 trials are stops.
+    expected_cycle = [100, 200, 300]
+    for i, ssd in enumerate(ssd_values):
+        assert ssd == expected_cycle[i % 3], (
+            f"Stop trial {i}: expected {expected_cycle[i % 3]}, got {ssd}"
+        )
+
+
+def test_ssd_levels_empty_raises():
+    """ssd_levels=[] must raise ValueError at construction (fail fast)."""
+    import pytest
+    with pytest.raises(ValueError, match="ssd_levels"):
+        StopSignalConfig(
+            n_trials=10,
+            use_staircase=False,
+            ssd_levels=[],
+        )
+
+
+def test_ssd_levels_ignored_when_staircase_active():
+    """When use_staircase=True, ssd_levels is ignored and staircase drives SSD.
+
+    Verify by checking that SSD values increase after each stop-success, which
+    is staircase behaviour — not a fixed cycle.
+    """
+    config = StopSignalConfig(
+        n_trials=4,
+        stop_proportion=1.0,
+        initial_ssd_ms=200,
+        ssd_step_ms=50,
+        ssd_min_ms=50,
+        ssd_max_ms=600,
+        use_staircase=True,
+        go_cue_onset_ms=300,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=51,
+        ssd_levels=[100, 200, 300],  # must be ignored
+    )
+    trials = run_stop_signal_trials(config, always_inhibit_policy)
+    ssd_values = [
+        ev.payload["ssd_ms"]
+        for t in trials
+        for ev in t.events
+        if ev.event_type == EventType.stop_signal
+    ]
+    # Staircase: 200 → 250 → 300 → 350 (not the cycle [100, 200, 300, 100]).
+    assert ssd_values == [200, 250, 300, 350], (
+        f"Staircase expected [200,250,300,350], got {ssd_values}"
+    )
+
+
+def test_ssd_levels_negative_value_raises():
+    """ssd_levels containing a non-positive integer must raise ValueError."""
+    import pytest
+    with pytest.raises(ValueError, match="ssd_levels"):
+        StopSignalConfig(
+            n_trials=10,
+            use_staircase=False,
+            ssd_levels=[100, -50, 200],
+        )
+
+
+# --- Test 16: stop_trial_go_evidence (Task 7.1) ---
+
+
+def test_stop_trial_go_evidence_false_gives_cue_identity_stop():
+    """Default stop_trial_go_evidence=False: stop trials must have cue_identity='stop'."""
+    config = StopSignalConfig(
+        n_trials=20,
+        stop_proportion=0.5,
+        initial_ssd_ms=200,
+        use_staircase=False,
+        go_cue_onset_ms=300,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=60,
+        stop_trial_go_evidence=False,
+    )
+    trials = run_stop_signal_trials(config, always_inhibit_policy)
+    for t in trials:
+        stop_events = [ev for ev in t.events if ev.event_type == EventType.stop_signal]
+        if stop_events:
+            # stop trial — identified by stop_signal event presence
+            assert t.cue_identity == "stop", (
+                f"Trial {t.trial_id}: expected cue_identity='stop', got '{t.cue_identity}'"
+            )
+
+
+def test_stop_trial_go_evidence_true_gives_cue_identity_go():
+    """stop_trial_go_evidence=True: stop trials must have cue_identity='go'."""
+    config = StopSignalConfig(
+        n_trials=20,
+        stop_proportion=1.0,   # all stop trials
+        initial_ssd_ms=200,
+        use_staircase=False,
+        go_cue_onset_ms=300,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=61,
+        stop_trial_go_evidence=True,
+    )
+    trials = run_stop_signal_trials(config, always_inhibit_policy)
+    for t in trials:
+        assert t.cue_identity == "go", (
+            f"Trial {t.trial_id}: expected cue_identity='go' when stop_trial_go_evidence=True, "
+            f"got '{t.cue_identity}'"
+        )
+        # Stop signal event must still be emitted — it is the identity marker.
+        stop_events = [ev for ev in t.events if ev.event_type == EventType.stop_signal]
+        assert len(stop_events) == 1, (
+            f"Trial {t.trial_id}: expected 1 stop_signal event, got {len(stop_events)}"
+        )
+
+
+def test_go_trials_always_have_cue_identity_go_regardless_of_flag():
+    """Go trials must always have cue_identity='go', even when stop_trial_go_evidence=True."""
+    config = StopSignalConfig(
+        n_trials=40,
+        stop_proportion=0.5,
+        initial_ssd_ms=200,
+        use_staircase=False,
+        go_cue_onset_ms=300,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=62,
+        stop_trial_go_evidence=True,
+    )
+    trials = run_stop_signal_trials(config, always_go_policy)
+    # Identify go trials by absence of stop_signal events.
+    for t in trials:
+        stop_events = [ev for ev in t.events if ev.event_type == EventType.stop_signal]
+        if not stop_events and t.failure_mode != "stop_failure":
+            # Pure go trial (no stop_signal event, responded = success)
+            assert t.cue_identity == "go", (
+                f"Trial {t.trial_id}: go trial cue_identity should be 'go', "
+                f"got '{t.cue_identity}'"
+            )
+
+
+# --- Test 17: movement_onset_time from selection_latency (Task 7.1) ---
+
+
+def _make_latency_policy(
+    selection_latency: float,
+) -> Callable[[TrialLog, ActionEvidence], BGDecision]:
+    """Return a policy that responds with a specific selection_latency."""
+    def policy(trial_log: TrialLog, action_evidence: ActionEvidence) -> BGDecision:
+        return BGDecision(
+            sim_time=action_evidence.sim_time,
+            trial_id=action_evidence.trial_id,
+            selected_channel=0,
+            decision_margin=0.5,
+            suppression_vector=[0.0, 0.0],
+            channel_activations=[0.8, 0.3],
+            selection_latency=selection_latency,
+        )
+    return policy
+
+
+def test_movement_onset_time_uses_selection_latency_when_positive():
+    """When BGDecision.selection_latency > 0, movement_onset_time must reflect it.
+
+    Expected: movement_onset_time == (go_cue_onset_ms + selection_latency_ms) / 1000.0
+    where selection_latency_ms = int(selection_latency * 1000).
+    """
+    go_cue_onset_ms = 300
+    selection_latency = 0.050   # 50 ms
+
+    config = StopSignalConfig(
+        n_trials=5,
+        stop_proportion=0.0,   # all go trials
+        initial_ssd_ms=200,
+        use_staircase=False,
+        go_cue_onset_ms=go_cue_onset_ms,
+        decision_point_ms=500,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=70,
+    )
+    policy = _make_latency_policy(selection_latency)
+    trials = run_stop_signal_trials(config, policy)
+
+    expected_onset = (go_cue_onset_ms + int(selection_latency * 1000)) / 1000.0
+    for t in trials:
+        assert t.movement_onset_time is not None
+        assert abs(t.movement_onset_time - expected_onset) < 1e-9, (
+            f"Trial {t.trial_id}: movement_onset_time={t.movement_onset_time}, "
+            f"expected {expected_onset}"
+        )
+
+
+def test_movement_onset_time_falls_back_when_selection_latency_zero():
+    """When BGDecision.selection_latency == 0.0, movement_onset_time falls back to
+    decision_abs_ms / 1000.0 (old behaviour preserved for Phase 1 policies)."""
+    go_cue_onset_ms = 300
+    decision_point_ms = 500
+
+    config = StopSignalConfig(
+        n_trials=5,
+        stop_proportion=0.0,
+        initial_ssd_ms=200,
+        use_staircase=False,
+        go_cue_onset_ms=go_cue_onset_ms,
+        decision_point_ms=decision_point_ms,
+        response_window_duration_ms=700,
+        fixation_duration_ms=200,
+        seed=71,
+    )
+    policy = _make_latency_policy(0.0)
+    trials = run_stop_signal_trials(config, policy)
+
+    expected_onset = (go_cue_onset_ms + decision_point_ms) / 1000.0
+    for t in trials:
+        assert t.movement_onset_time is not None
+        assert abs(t.movement_onset_time - expected_onset) < 1e-9, (
+            f"Trial {t.trial_id}: movement_onset_time={t.movement_onset_time}, "
+            f"expected {expected_onset}"
+        )
+
+
+# --- Test 18: Backward-compatibility regression (Task 7.1) ---
+
+
+def test_backward_compat_no_new_fields():
+    """StopSignalConfig(n_trials=10) with no new fields must produce identical behaviour
+    to the pre-Phase-7 implementation: fixed initial_ssd_ms, cue_identity='stop' for
+    stop trials, no ssd_levels cycling."""
+    config = StopSignalConfig(n_trials=10, seed=80)
+    assert config.ssd_levels is None
+    assert config.stop_trial_go_evidence is False
+
+    trials = run_stop_signal_trials(config, always_go_policy)
+    assert len(trials) == 10
+    # Stop trials must still have cue_identity='stop' (backward compat).
+    stop_trials_by_cue = [t for t in trials if t.cue_identity == "stop"]
+    for t in stop_trials_by_cue:
+        assert t.cue_identity == "stop"

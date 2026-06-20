@@ -75,6 +75,13 @@ class StopSignalConfig:
             go_cue onset. A response is only valid within [0, response_window_duration_ms).
         fixation_duration_ms: time from trial start to fixation signal (ms).
         seed: master random seed for the session; per-trial seeds are derived from it.
+        ssd_levels: when use_staircase=False, cycle through these SSD values round-robin
+            per stop trial.  None (default) retains the original fixed initial_ssd_ms
+            behaviour.  Must be non-empty with all positive values when provided.
+        stop_trial_go_evidence: when True, stop trials receive cue_identity="go" so
+            CortexEvidenceGenerator generates directed go evidence; stop trials are still
+            identified by the stop_signal event in trial_log.events.  Default False
+            preserves backward-compatible cue_identity="stop" behaviour.
     """
     n_trials: int
     stop_proportion: float = 0.25
@@ -88,6 +95,18 @@ class StopSignalConfig:
     response_window_duration_ms: int = 700
     fixation_duration_ms: int = 200
     seed: int = 42
+    ssd_levels: list[int] | None = None
+    # When use_staircase=False and ssd_levels is set: cycle through this list
+    # round-robin per stop trial (index = stop_trial_number % len(ssd_levels)).
+    # When use_staircase=False and ssd_levels is None: all stop trials use
+    # initial_ssd_ms (existing behaviour — unchanged).
+
+    stop_trial_go_evidence: bool = False
+    # When True: stop trials use cue_identity="go" so CortexEvidenceGenerator
+    # (inside ClosedLoopPolicy) generates directed go evidence.  The stop_signal
+    # event is still emitted in trial_log.events; ClosedLoopPolicy reads it to
+    # set stop_signal_present=True, triggering BGAdapter inhibition.
+    # When False: stop trials use cue_identity="stop" as today (backward compat).
 
     def __post_init__(self) -> None:
         # Trigger: stop_proportion outside [0.0, 1.0] is a nonsensical configuration.
@@ -98,6 +117,20 @@ class StopSignalConfig:
             raise ValueError(
                 f"stop_proportion must be in [0.0, 1.0], got {self.stop_proportion}"
             )
+
+        # Trigger: ssd_levels is provided but empty or contains non-positive integers.
+        # Why: an empty list would cause ZeroDivisionError at runtime; non-positive
+        #      SSD values are physically meaningless (SSD must be > 0 ms).
+        # Outcome: raises ValueError immediately at construction time (fail fast).
+        if self.ssd_levels is not None:
+            if len(self.ssd_levels) == 0:
+                raise ValueError(
+                    "ssd_levels must not be empty when provided"
+                )
+            if any(v <= 0 for v in self.ssd_levels):
+                raise ValueError(
+                    f"ssd_levels must contain only positive integers, got {self.ssd_levels}"
+                )
 
 
 # --- Staircase State ---
@@ -192,6 +225,9 @@ def run_stop_signal_trials(
     # Staircase state is shared and mutated across all stop trials in the session.
     staircase = StaircaseState(current_ssd_ms=config.initial_ssd_ms)
 
+    # stop_trial_index counts only stop trials; used for ssd_levels round-robin cycling.
+    stop_trial_index = 0
+
     for trial_idx in range(config.n_trials):
         trial_id = trial_idx + 1
         trial_seed = rng.randint(0, 2**31 - 1)
@@ -203,12 +239,33 @@ def run_stop_signal_trials(
         #      while maintaining the target stop frequency over large trial counts.
         # Outcome: is_stop_trial governs the entire trial flow below.
         is_stop_trial = trial_rng.random() < config.stop_proportion
-        cue_identity = "stop" if is_stop_trial else "go"
+
+        # --- Assign cue_identity for this trial ---
+        # Trigger: stop_trial_go_evidence=True means the cortex should generate go-directed
+        #          evidence even on stop trials (used by ClosedLoopPolicy with BGAdapter).
+        # Why: stop trials in the ClosedLoopPolicy are identified by the stop_signal event
+        #      in trial_log.events, not by cue_identity. Using cue_identity="go" ensures
+        #      CortexEvidenceGenerator produces directed go evidence, enabling realistic RT.
+        # Outcome: cue_identity is "go" on stop trials when flag is set; "stop" otherwise
+        #          (backward-compat default).
+        if is_stop_trial and config.stop_trial_go_evidence:
+            cue_identity = "go"   # ClosedLoopPolicy: cortex generates directed evidence
+        elif is_stop_trial:
+            cue_identity = "stop"  # backward compat
+        else:
+            cue_identity = "go"
 
         # --- Snapshot SSD for this trial before any staircase update ---
-        # The staircase state reflects the current SSD; it will only change after
-        # this trial completes (if it is a stop trial).
-        ssd_ms = staircase.current_ssd_ms if config.use_staircase else config.initial_ssd_ms
+        # Trigger: three modes for SSD assignment — staircase, ssd_levels cycling, fixed.
+        # Why: ssd_levels enables multi-SSD designs (e.g., SSRT estimation across SSD bins)
+        #      without requiring staircase convergence.
+        # Outcome: ssd_ms is drawn from the appropriate source before the trial begins.
+        if config.use_staircase:
+            ssd_ms = staircase.current_ssd_ms
+        elif config.ssd_levels is not None:
+            ssd_ms = config.ssd_levels[stop_trial_index % len(config.ssd_levels)]
+        else:
+            ssd_ms = config.initial_ssd_ms
 
         # --- Open trial ---
         trial_log = logger.open_trial(
@@ -315,12 +372,29 @@ def run_stop_signal_trials(
         # here (both RTs are identical) and will become meaningful once real policies
         # have RT variance.
         if responded:
-            movement_onset_ms = decision_abs_ms
+            # Trigger: BGDecision.selection_latency > 0 means the policy provided a
+            #          meaningful RT proxy (e.g., ClosedLoopPolicy measures BG tick timing).
+            # Why: pinning to decision_abs_ms makes RT constant, collapsing failed-stop RT
+            #      and go RT to the same value and defeating Verbruggen validity checks.
+            # Outcome: movement_onset_time reflects actual decision timing when non-zero;
+            #          falls back to decision_abs_ms for Phase 1 policies (ThresholdPolicy,
+            #          RandomPolicy) that don't set a meaningful latency.
+            if decision.selection_latency > 0:
+                movement_onset_ms = config.go_cue_onset_ms + int(decision.selection_latency * 1000)
+            else:
+                movement_onset_ms = decision_abs_ms
+            # The movement_onset event sim_time must not precede decision_commit (ordering
+            # invariant for log replays that sort events by sim_time).  selection_latency
+            # is an RT proxy measured from go_cue onset; when it is shorter than
+            # decision_point_ms the raw onset time would land before the decision_commit
+            # event.  We clamp the event sim_time to decision_abs_ms while keeping the
+            # raw movement_onset_ms for movement_onset_time (the validity metric field).
+            event_sim_time_ms = max(movement_onset_ms, decision_abs_ms)
             _record_event(
                 trial_log,
                 logger,
                 EventType.movement_onset,
-                sim_time_ms=movement_onset_ms,
+                sim_time_ms=event_sim_time_ms,
             )
             # cue_onset_time = go_cue_onset_ms / 1000.0 (set at open_trial above)
             trial_log.movement_onset_time = movement_onset_ms / 1000.0
@@ -328,16 +402,20 @@ def run_stop_signal_trials(
         # --- Classify trial outcome ---
         _classify_trial(config, state)
 
-        # --- Update staircase after stop trial ---
+        # --- Update staircase and stop_trial_index after stop trial ---
         # Trigger: this was a stop trial; staircase must be updated before next trial.
         # Why: updating immediately after classification ensures the next trial's SSD
         #      snapshot reflects the outcome of this trial.
         # Outcome: staircase.current_ssd_ms moves up (inhibit) or down (fail) by step.
-        if is_stop_trial and config.use_staircase:
-            if state.trial_log.success:
-                staircase.update_after_stop_success(config.ssd_step_ms, config.ssd_max_ms)
-            else:
-                staircase.update_after_stop_failure(config.ssd_step_ms, config.ssd_min_ms)
+        #          stop_trial_index advances regardless of mode so ssd_levels cycling stays
+        #          consistent with the sequence of stop trials seen.
+        if is_stop_trial:
+            if config.use_staircase:
+                if state.trial_log.success:
+                    staircase.update_after_stop_success(config.ssd_step_ms, config.ssd_max_ms)
+                else:
+                    staircase.update_after_stop_failure(config.ssd_step_ms, config.ssd_min_ms)
+            stop_trial_index += 1
 
         # --- Emit stop_signal after decision point if it arrives late ---
         # Already emitted above for all stop trials (before or at decision point).
