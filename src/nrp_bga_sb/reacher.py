@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 from pydantic import BaseModel, model_validator
 
+from nrp_bga_sb.cerebellum import Cerebellum
+from nrp_bga_sb.perturbation_plant import VisuomotorRotation, signed_angle
 from nrp_bga_sb.schemas import MotorCommand
 
 # --- ReacherConfig ---
@@ -276,4 +278,86 @@ class KinematicReacher:
             positions_xy=positions_xy,
             onset_time_ms=pre_switch_onset_ms,
             selected_channel=ch1,  # post-switch channel is the final committed direction
+        )
+
+    def simulate_with_correction(
+        self,
+        motor_commands: list[MotorCommand],
+        onset_time_ms: float | None,
+        total_duration_ms: float = 1300.0,
+        perturbation: VisuomotorRotation | None = None,
+        cerebellum: Cerebellum | None = None,
+    ) -> ReacherTrajectory:
+        """Simulate a reach under an optional perturbation + cerebellar correction.
+
+        The cerebellum sits strictly downstream: it is invoked ONLY when a
+        movement is executed. Misses (closed gate / no command) return a
+        zero-movement trajectory and never reach the cerebellum, so the
+        BG-frequency selection signature is preserved (Phase 11 guard).
+        """
+        n_steps = int(round(total_duration_ms / self.config.dt_ms)) + 1
+        times_ms = [i * self.config.dt_ms for i in range(n_steps)]
+        zero_positions = [[0.0, 0.0]] * n_steps
+
+        # --- No-movement guard ---
+        # Trigger: empty command series or a closed final gate.
+        # Why: a downstream corrector must never manufacture a reach the BG/thalamus
+        #      did not release; this is what keeps onset-rate-vs-frequency invariant
+        #      to the cerebellum.
+        # Outcome: return a zero trajectory and leave `cerebellum` state untouched.
+        if not motor_commands or motor_commands[-1].gate_state == "closed":
+            return ReacherTrajectory(
+                times_ms=times_ms,
+                positions_xy=zero_positions,
+                onset_time_ms=None,
+                selected_channel=-1,
+            )
+
+        last_cmd = motor_commands[-1]
+        if len(last_cmd.command) != self.config.n_channels:
+            raise ValueError(
+                f"Command has {len(last_cmd.command)} channels but "
+                f"config expects {self.config.n_channels}"
+            )
+        selected_channel = int(np.argmax(last_cmd.command))
+        if last_cmd.command[selected_channel] == 0.0:
+            raise ValueError(
+                f"gate_state={last_cmd.gate_state!r} but command is all-zero: "
+                f"{last_cmd.command}"
+            )
+
+        tx, ty = self.config.target_positions[selected_channel]
+        # Desired (achievable) endpoint: target scaled by the gate gain.
+        desired = [tx * last_cmd.gate_gain, ty * last_cmd.gate_gain]
+
+        # Feedforward pre-compensation (learned counter-rotation), then the plant
+        # perturbation. With no cerebellum/perturbation these are identities.
+        commanded = cerebellum.precompensate(desired) if cerebellum else list(desired)
+        openloop = perturbation.apply(commanded) if perturbation else list(commanded)
+
+        actual_onset = onset_time_ms if onset_time_ms is not None else 0.0
+        T = self.config.movement_duration_ms
+
+        # Build the per-step minimum-jerk progress s(t) over the movement window;
+        # steps before onset hold at the origin (progress 0).
+        s_values = [
+            _minimum_jerk_scalar(t_ms - actual_onset, T) if t_ms >= actual_onset else 0.0
+            for t_ms in times_ms
+        ]
+
+        if cerebellum is not None:
+            positions_xy = cerebellum.integrate(desired, openloop, s_values)
+            # Learning is driven by the open-loop (feedforward) angular error so it
+            # is not masked by within-trial online correction.
+            cerebellum.learn(signed_angle(desired, openloop))
+        else:
+            # No cerebellum: straight minimum-jerk line to the (possibly perturbed) endpoint.
+            ex, ey = openloop
+            positions_xy = [[ex * s, ey * s] for s in s_values]
+
+        return ReacherTrajectory(
+            times_ms=times_ms,
+            positions_xy=positions_xy,
+            onset_time_ms=actual_onset,
+            selected_channel=selected_channel,
         )
