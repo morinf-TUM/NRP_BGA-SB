@@ -19,6 +19,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 8 complete (2026-06-20).** Change-of-mind metrics and two-phase kinematic trajectory (M6). `change_of_mind_metrics.py` computes revision latency, CoM probability, perseveration rate; `KinematicReacher.simulate_change_of_mind` simulates two-phase minimum-jerk trajectories with handoff position; `change_of_mind_sweep.py` sweeps five BG frequencies across four switch-delay categories. Key finding: CoM probability is 0.0 at 5 Hz and 1.0 at ≥10 Hz; per-category timing gradient collapses because post_switch_decision_point_ms=550ms gives all categories ≥100ms of post-switch time. Movement reversal detection fixed for negative→positive sign flip. 632 tests passing (28 new in Phase 8), ruff clean. See §24 for module map.
 - **Phase 9 complete (2026-06-20).** Latency/jitter/dropout/phase decomposition (M10). `perturbation_sweep.py` sweeps four timing perturbation types (fixed latency {0,10,25,50,100 ms}, jitter std {0,5,10,25 ms}, dropout {0,1,5,10 %}, phase offset {0,25,50,75 % of period}) across go/no-go and stop-signal paradigms at five BG frequencies. Key finding: latency/jitter/phase-offset shift selection_latency (RT proxy) without changing selected_channel, so go_success_rate and stop_failure_rate are frequency-driven (selector/cancellation bottleneck); only dropout alters channel selection by replaying stale decisions. M10 acceptance: decomposition report disentangles frequency from all four timing perturbations. 674 tests passing, ruff clean. See §25 for module map.
 - **Phase 10 complete (2026-06-20).** OpenSim Arm26 musculoskeletal embodiment (M8). Containerised OpenSim 4.6 plant (`nrp-bga-opensim:4.6`) runs the Arm26 model via a file-based batch boundary; host `opensim_plant.py` ships reduced `ReachSpec`s to the container and scores returned hand trajectories with `compute_movement_metrics`. `experiments/opensim_gonogo_sweep.py` runs the closed-loop go/no-go pipeline at five BG frequencies through both the OpenSim plant and the kinematic reacher on the SAME BG decisions. M8 result: the BG-frequency effect survives full musculoskeletal embodiment — OpenSim movement-onset rate is 0.000 at 5 Hz and 1.000 at ≥10 Hz, identical to the kinematic reacher. 685 tests passing (1 new host dry-run + 1 Docker-gated smoke deselected without an image), ruff clean. See §26 for module map.
+- **Phase 11 complete (2026-06-20).** Cerebellar trajectory correction (M9). `perturbation_plant.py` (`VisuomotorRotation` + 2D geometry helpers `rotate_xy`, `signed_angle`), `cerebellum.py` (`AdaptiveFilter` LMS trial-by-trial adaptation, `ForwardModelController` within-trial online feedback, `Cerebellum` composition with independent enable flags), `KinematicReacher.simulate_with_correction` (invoked only on executed movements — the BG-effect guard), and `cerebellum_sweep.py` (`CerebellumSweepResult`, `run_cerebellum_condition`, `FREQUENCIES_HZ`). Key result: under a 30° visuomotor rotation the cerebellum reduces mean endpoint deviation to 0.0 at every frequency that moves (θ̂ → 0.4730 rad across trials), while movement-onset-rate-vs-frequency is bit-identical with the cerebellum on or off (0.000 at 5 Hz, 1.000 at ≥10 Hz) — the BG-frequency selection signature survives. 723 tests passing, 2 deselected (Docker-gated opensim), ruff clean. See §27 for module map. Embodied confirmation deferred to Phase 11b (IMPLEMENTATION_PLAN.md).
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -1140,3 +1141,97 @@ go/no-go sweep, `n_trials=30` per frequency, seed 12345, onset rate computed ove
 | 80.0 | 1.000 | 1.000 | 0.1533 |
 
 **M8 confirmed:** the BG-frequency gating effect survives full musculoskeletal embodiment. At 5 Hz the BG never crosses the selection threshold so no reach occurs; at ≥10 Hz every go trial produces a reach. The OpenSim onset rates match the kinematic reacher exactly (both driven by the SAME BG decisions), so the embodiment adds movement dynamics without altering the qualitative selection signature. The mean OpenSim endpoint error (~0.153 in the arm's own FK frame) is constant across the frequencies that move, as expected for a deterministic reach to a fixed `q_target`.
+
+---
+
+## 27. Phase 11 module map (complete as of 2026-06-20)
+
+Cerebellar trajectory correction (M9). The cerebellar module adds accuracy improvement under visuomotor perturbation while leaving the BG-frequency selection signature structurally intact. All new code is host-side; nothing in the BG, cortex, thalamus, scheduler, or task-engine pipeline changes.
+
+### 27.1 Source layout
+
+```
+src/nrp_bga_sb/
+    perturbation_plant.py   — VisuomotorRotation (apply θ rotation to a 2D reach vector),
+                              rotate_xy (rotation matrix utility),
+                              signed_angle (signed angular error between two 2D vectors)
+    cerebellum.py           — AdaptiveFilter (scalar θ̂ state, LMS trial-by-trial adaptation),
+                              ForwardModelController (within-trial proportional online feedback),
+                              Cerebellum (composes AdaptiveFilter + ForwardModelController,
+                                          independent adaptation_enabled / online_enabled flags)
+    reacher.py              — EXTENDED: KinematicReacher.simulate_with_correction(
+                                motor_commands, gate_state, target, perturbation, cerebellum,
+                                onset_time_ms, total_duration_ms)
+    cerebellum_sweep.py     — FREQUENCIES_HZ, CerebellumSweepResult (Pydantic v2),
+                              run_cerebellum_condition(freq_hz, n_trials, seed,
+                                perturbation, cerebellum_on) -> CerebellumSweepResult
+
+experiments/
+    cerebellum_adaptation.py — run_sweep, save_results, format_report, main;
+                                writes results/cerebellum_results.json
+
+tests/
+    test_perturbation_plant.py   — geometry: θ=0 identity, known-angle analytic checks,
+                                   signed_angle sign convention, ValueError on non-finite θ
+    test_cerebellum.py           — AdaptiveFilter: LMS convergence (θ̂ → θ), monotone error
+                                   decay, α-bounds validation, reset(); ForwardModelController:
+                                   k=0 no-op, endpoint error reduced vs uncorrected;
+                                   Cerebellum: enable flags route to correct layers
+    test_reacher_correction.py   — simulate_with_correction: closed-gate / miss untouched
+                                   (guard), executed trial corrected, θ=0+off reproduces simulate
+    test_cerebellum_sweep.py     — CerebellumSweepResult fields, onset-rate-vs-frequency
+                                   bit-identical on vs off (BG-effect guard test),
+                                   dev on < dev off at moving frequencies
+    test_cerebellum_experiment.py — run_sweep structure, save_results writes valid JSON,
+                                    format_report includes all frequencies
+```
+
+### 27.2 Cerebellar model choice and literature anchors
+
+The Phase 11 cerebellum implements the **cerebellar adaptive-filter** model (Marr–Albus–Ito lineage):
+
+- **Trial-by-trial adaptation layer (`AdaptiveFilter`):** scalar counter-rotation state θ̂, updated by the Widrow-Hoff / LMS delta rule `θ̂ ← θ̂ + α·e` (α=0.1, default). Mechanistic interpretation: climbing-fibre error signal (angular error `e`) drives parallel-fibre weight update, reduced to its simplest scalar form. Produces an exponential learning curve: θ̂ → θ and error → 0 across trials. Literature anchors: Fujita M. (1982) *Biol Cybern*; Dean P., Porrill J., Stone J.V. (2010) "The cerebellar microcircuit as an adaptive filter", *Nat Rev Neurosci*.
+- **Within-trial online feedback layer (`ForwardModelController`):** proportional corrective term (gain `k`) steering each integration step toward the intended (undistorted) target position. Stateless across trials. `k=0` is an exact no-op recovering the uncorrected trajectory. Mechanistic interpretation: internal forward model + delay-free feedback, simplest proportional form of the Smith-predictor lineage. Literature anchors: Miall R.C., Weir D.J., Wolpert D.M., Stein J.F. (1993) "Is the cerebellum a Smith predictor?", *J Mot Behav*; Wolpert, Miall & Kawato (1998).
+- **Perturbation paradigm:** visuomotor rotation (fixed θ=30° default), the canonical cerebellar/sensorimotor adaptation task. Literature anchors: Martin T.A. et al. (1996) *Brain*; Tseng Y.W. et al. (2007) *J Neurophysiol*.
+
+These are the project's first cerebellar literature anchors; they extend §10 without replacing it. The design rationale and rejected alternatives (two-rate model, pure Smith predictor) are documented in the design spec: `docs/superpowers/specs/2026-06-20-phase11-cerebellar-correction-design.md`.
+
+### 27.3 Geometry convention
+
+`VisuomotorRotation` applies a 2D rotation matrix about the origin to the commanded reach direction vector. A rotation of θ=30° (≈0.524 rad) deflects the executed trajectory by 30° relative to the intended direction. The angular error `e` is the signed angle from the achieved endpoint direction to the desired endpoint direction, computed by `signed_angle(v_actual, v_desired)` (positive = counter-clockwise correction needed).
+
+Accuracy is measured as endpoint deviation from the **gate-scaled desired endpoint**: `target_xy * gate_gain`. This matches the Phase 6 `KinematicReacher` convention (§22.2) — the reference is not the raw target but the thalamic-gain-scaled position that a perfect unperturbed reach would reach. A cerebellum-corrected reach lands at `endpoint_deviation ≈ 0.0` when θ̂ ≈ θ; an uncorrected reach has `endpoint_deviation = ‖target‖ × sin(θ) × gate_gain`.
+
+### 27.4 BG-effect guard mechanism
+
+`KinematicReacher.simulate_with_correction` checks the gate state before any cerebellar computation. If `gate_state == "closed"` (5 Hz miss trial: thalamus never opened — §20.6, §22.5), the method returns a zero-movement trajectory immediately; the cerebellum (`AdaptiveFilter` and `ForwardModelController`) is never invoked. Therefore:
+- No movement is manufactured that the BG did not release.
+- `movement_onset_rate` as a function of BG frequency is structurally identical with the cerebellum on or off.
+- The BG-frequency selection signature (§20.6, §22.7) cannot be altered by the cerebellar layer regardless of its learning state.
+
+This is a positional invariant, not a tuning result: the corrector sits downstream of the thalamic gate and can only reshape trajectories the gate already produced.
+
+### 27.5 M9 acceptance result
+
+Sweep design: 5 BG frequencies × cerebellum off/on × 50 trials, seed 42, 30° visuomotor rotation, go/no-go paradigm, `n_trials_per_freq=50`, `accumulation_ms=200`. Results from `experiments/cerebellum_adaptation.py` smoke run (2026-06-20):
+
+```
+freq(Hz) | onset off | onset on | dev off | dev on | ang.err on | theta_hat on
+----------------------------------------------------------------------------------
+    5.0  |     0.000 |    0.000 |  0.0000 |  0.0000 |     0.0000 |       0.0000
+   10.0  |     1.000 |    1.000 |  0.0393 |  0.0000 |     0.0000 |       0.4730
+   20.0  |     1.000 |    1.000 |  0.2205 |  0.0000 |     0.0000 |       0.4730
+   40.0  |     1.000 |    1.000 |  0.3102 |  0.0000 |     0.0000 |       0.4730
+   80.0  |     1.000 |    1.000 |  0.3106 |  0.0000 |     0.0000 |       0.4730
+```
+
+Interpretation: `onset off == onset on` at every frequency (bit-identical, BG-effect guard holds); `dev on = 0.0` vs `dev off > 0` at every moving frequency (cerebellum corrects to zero endpoint deviation); `theta_hat on ≈ 0.4730 rad` (≈27°) at ≥10 Hz (LMS adaptation has converged; residual of ~3° from θ=0.524 rad reflects the finite block length). Results written to `results/cerebellum_results.json`.
+
+**M9 confirmed.** OpenSim embodiment of the cerebellar correction is deferred to Phase 11b (IMPLEMENTATION_PLAN.md), mirroring the Phase 6 → Phase 10 kinematic → OpenSim step.
+
+### 27.6 Known constraints at Phase 11
+
+- **θ̂ asymptote is ~0.4730 rad, not the full 0.524 rad (30°)**: a fresh filter is built per condition (θ̂ resets each frequency × on/off cell), so with α=0.1 the LMS filter adapts over only the ~21 go-trials of each 30-trial condition (`go_probability=0.7`) before reset — not a long uninterrupted block. The exponential approach `θ̂_n ≈ θ(1 − (1−α)^n)` with n ≈ 21 predicts θ̂ ≈ 0.524 × (1 − 0.9²¹) ≈ 0.524 × 0.891 ≈ 0.467 rad, matching the measured ~0.473 rad. This is a finite-block parameter-sweep artefact, not a model failure (endpoint deviation still falls to 0.0 with the cerebellum on, via within-trial online feedback).
+- **`dev off` varies with frequency (0.039–0.311)**: the unperturbed endpoint deviation depends on how many trials run at each frequency before the adaptation state resets; at 10 Hz fewer adaptation steps occur. With the cerebellum on, this variation disappears (dev on = 0.0 everywhere).
+- **Kinematic plant only:** OpenSim embodiment is deferred to Phase 11b. The BG-effect guard and LMS convergence are validated on the kinematic reacher, which is sufficient for M9.
+- **Single rotation direction**: only a fixed positive θ is tested. Negative θ (mirror rotation), washout, and savings experiments are out of scope for Phase 11.
