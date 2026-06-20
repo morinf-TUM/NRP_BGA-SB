@@ -27,6 +27,7 @@ from nrp_bga_sb.perturbation_sweep import (
     SS_SSD_STEP_MS,
     SS_STOP_PROPORTION,
     PerturbationSweepResult,
+    _make_label,
     _make_wrapped_policy,
     _phase_offset_ms,
     format_decomposition_report,
@@ -593,3 +594,8 @@ def test_perturbation_levels_dict_keys():
             n_seeds=2,
         )
         assert result_ss.perturbation_type == ptype
+
+
+def test_make_label_unknown_type_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown perturbation_type"):
+        _make_label("bad_type", 0.0)  # type: ignore[arg-type]
