@@ -273,6 +273,157 @@ def trigger_failure_rate(trials: list[TrialLog]) -> float | None:
     return n_late / len(stop_failures)
 
 
+# --- Validity report ---
+
+_INDEPENDENCE_NOTE = (
+    "Race model independence assumed. In Phase 7, go and stop processes share"
+    " the CortexEvidenceGenerator; true statistical independence is not guaranteed"
+    " but is not empirically testable from behavioural data alone."
+)
+
+
+class StopSignalValidityReport(BaseModel):
+    """Validity report for a stop-signal experiment condition.
+
+    Follows Verbruggen et al. 2019 §Validity checks.
+    All checks are soft (status flags + values); none raise errors.
+    """
+
+    # --- RT validity ---
+    # Verbruggen 2019: failed-stop RT should be shorter than go RT (race model).
+    go_rt_mean_s: float | None          # mean go RT (responding trials)
+    failed_stop_rt_mean_s: float | None  # mean failed-stop RT
+    rt_check_passed: bool               # True when failed_stop_rt_mean_s < go_rt_mean_s
+    rt_check_note: str                  # human-readable explanation of result
+
+    # --- Trial counts (exclusion tracking) ---
+    n_total_trials: int
+    n_stop_trials: int
+    n_go_trials: int
+    n_late_stop_trials: int             # stop trials with SSD >= decision_point_ms (not logged)
+    n_excluded_for_ssrt: int            # late-stop trials excluded from SSRT computation
+
+    # --- Independence assumption documentation ---
+    # Verbruggen 2019: the race model assumes the go and stop processes are independent.
+    # In Phase 7, the BG model uses the same cortical evidence generator for go and stop
+    # processes; true independence is not guaranteed. This is documented, not checked.
+    independence_assumption_note: str   # fixed text explaining the assumption and its status
+
+    # --- Stop proportion check ---
+    # Verbruggen 2019: empirical stop proportion should be close to the intended value.
+    empirical_stop_proportion: float    # n_stop_trials / n_total_trials
+
+    # --- Inhibition function monotonicity ---
+    inhibition_function_monotone: bool | None
+    # True if failure_rate rises with SSD (or None if <2 SSD levels)
+
+
+def validate_stop_signal_data(
+    trials: list[TrialLog],
+    intended_stop_proportion: float = 0.25,
+) -> StopSignalValidityReport:
+    """Run Verbruggen et al. 2019 validity checks on a stop-signal trial list.
+
+    Raises ValueError if trials is empty.
+
+    All checks are soft: no exception is raised on check failure.
+    The report documents results and notes for human interpretation.
+
+    independence_assumption_note is always the fixed string in _INDEPENDENCE_NOTE.
+
+    rt_check_note:
+      - If rt_check_passed=True:  "Failed-stop RT < go RT: race model prediction satisfied."
+      - If failed_stop_rt_mean_s is None:  "No stop failures: RT check not applicable."
+      - If go_rt_mean_s is None:  "No responding go trials: RT check not applicable."
+      - If rt_check_passed=False and values are equal within 1e-9:
+          deterministic BG model note (deferred to Phase 9+).
+      - If rt_check_passed=False and failed_stop_rt_mean_s > go_rt_mean_s:
+          "unexpected" note directing investigation.
+    """
+    if not trials:
+        raise ValueError("trials list is empty — cannot validate empty input")
+
+    # --- Trial counts ---
+    n_total = len(trials)
+    n_stop = sum(1 for t in trials if is_stop_trial(t))
+    n_go = sum(1 for t in trials if is_go_trial(t))
+
+    # Late-stop trials: stop trials that did NOT get a stop_signal event logged
+    # (SSD >= decision_point_ms — mechanically unavoidable failures).
+    n_late = sum(
+        1 for t in trials
+        if is_stop_trial(t) and not _has_stop_signal_event(t)
+    )
+
+    # --- RT validity ---
+    _go_stats = go_rt_stats(trials)
+    go_rt_mean = _go_stats["mean_s"]
+    failed_rt_mean = failed_stop_rt_mean(trials)
+
+    # Trigger: determine which RT-check branch applies (priority order matters).
+    # Why: each branch represents a distinct missing-data or comparison case;
+    #      the order avoids evaluating comparisons when operands are None.
+    # Outcome: rt_check_passed and rt_check_note are set deterministically.
+    if failed_rt_mean is None:
+        rt_check_passed = False
+        rt_check_note = "No stop failures: RT check not applicable."
+    elif go_rt_mean is None:
+        rt_check_passed = False
+        rt_check_note = "No responding go trials: RT check not applicable."
+    elif failed_rt_mean < go_rt_mean:
+        rt_check_passed = True
+        rt_check_note = "Failed-stop RT < go RT: race model prediction satisfied."
+    elif math.isclose(failed_rt_mean, go_rt_mean, abs_tol=1e-9):
+        # Trigger: RTs are numerically equal — expected in deterministic BG models
+        #          where both go RT and failed-stop RT derive from the same
+        #          selection_latency (BG-internal, not subject-level reaction time).
+        # Why: with a deterministic model there is no RT variability to separate
+        #      the two distributions; this is a known limitation of Phase 7.
+        # Outcome: failure documented with a deferred-check note; no error raised.
+        rt_check_passed = False
+        rt_check_note = (
+            "Failed-stop RT == go RT: expected with deterministic BG model where both"
+            " RTs derive from the same selection_latency. Race model check deferred to"
+            " Phase 9+ with RT variability."
+        )
+    else:
+        # failed_rt_mean > go_rt_mean — unexpected direction
+        rt_check_passed = False
+        rt_check_note = (
+            "Failed-stop RT > go RT: unexpected. Investigate BG model or SSD schedule."
+        )
+
+    # --- Inhibition function monotonicity ---
+    inh = inhibition_function(trials)
+    ssds_sorted = sorted(inh.keys())
+    if len(ssds_sorted) < 2:
+        # Trigger: fewer than 2 SSD levels present in the data.
+        # Why: monotonicity requires at least two consecutive points to compare.
+        # Outcome: field is None to distinguish "not assessed" from "True/False".
+        inh_monotone: bool | None = None
+    else:
+        rates = [inh[ssd]["failure_rate"] for ssd in ssds_sorted]
+        # Non-decreasing across all consecutive pairs ↔ monotone inhibition function.
+        inh_monotone = all(
+            rates[i] <= rates[i + 1] for i in range(len(rates) - 1)
+        )
+
+    return StopSignalValidityReport(
+        go_rt_mean_s=go_rt_mean,
+        failed_stop_rt_mean_s=failed_rt_mean,
+        rt_check_passed=rt_check_passed,
+        rt_check_note=rt_check_note,
+        n_total_trials=n_total,
+        n_stop_trials=n_stop,
+        n_go_trials=n_go,
+        n_late_stop_trials=n_late,
+        n_excluded_for_ssrt=n_late,
+        independence_assumption_note=_INDEPENDENCE_NOTE,
+        empirical_stop_proportion=n_stop / n_total,
+        inhibition_function_monotone=inh_monotone,
+    )
+
+
 # --- Output model and aggregator ---
 
 

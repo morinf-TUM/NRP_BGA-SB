@@ -13,6 +13,7 @@ import pytest
 from nrp_bga_sb.schemas import EventType, TaskEvent, TrialLog
 from nrp_bga_sb.stop_signal_metrics import (
     StopSignalMetrics,
+    StopSignalValidityReport,
     _has_stop_signal_event,
     _rt_s,
     cancellation_latency_mean,
@@ -25,6 +26,7 @@ from nrp_bga_sb.stop_signal_metrics import (
     is_go_trial,
     is_stop_trial,
     trigger_failure_rate,
+    validate_stop_signal_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -611,3 +613,180 @@ def test_has_stop_signal_event_true() -> None:
 def test_has_stop_signal_event_false() -> None:
     trial = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
     assert _has_stop_signal_event(trial) is False
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 Tests: validate_stop_signal_data and StopSignalValidityReport
+# ---------------------------------------------------------------------------
+
+_INDEPENDENCE_NOTE = (
+    "Race model independence assumed. In Phase 7, go and stop processes share"
+    " the CortexEvidenceGenerator; true statistical independence is not guaranteed"
+    " but is not empirically testable from behavioural data alone."
+)
+
+
+# Test V1: raises ValueError on empty list
+def test_validate_raises_on_empty() -> None:
+    with pytest.raises(ValueError):
+        validate_stop_signal_data([])
+
+
+# Test V2: rt_check_passed=True when failed_stop_rt < go_rt
+def test_rt_check_passed_when_failed_stop_rt_lt_go_rt() -> None:
+    # go RT = 0.080 s (two trials: 0.060 + 0.100 → mean = 0.080)
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.060)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.100)
+    # failed stop RT = 0.030 s (shorter than go RT)
+    fail = make_stop_failure_early(ssd_ms=150, movement_onset_time=_CUE_ONSET + 0.030)
+
+    report = validate_stop_signal_data([go1, go2, fail])
+
+    assert isinstance(report, StopSignalValidityReport)
+    assert report.rt_check_passed is True
+    assert report.rt_check_note == "Failed-stop RT < go RT: race model prediction satisfied."
+
+
+# Test V3: rt_check_passed=False with deterministic note when failed_stop_rt == go_rt
+def test_rt_check_failed_equal_rts_deterministic_note() -> None:
+    # go RT = 0.050 s (two trials with same onset)
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    # failed stop RT = exactly 0.050 s (same as go RT)
+    fail = make_stop_failure_early(ssd_ms=150, movement_onset_time=_CUE_ONSET + 0.050)
+
+    report = validate_stop_signal_data([go1, go2, fail])
+
+    assert report.rt_check_passed is False
+    assert "deterministic BG model" in report.rt_check_note
+    assert "Phase 9+" in report.rt_check_note
+
+
+# Test V4: rt_check_passed=False with "unexpected" note when failed_stop_rt > go_rt
+def test_rt_check_failed_unexpected_when_failed_stop_rt_gt_go_rt() -> None:
+    # go RT = 0.030 s (mean of two short trials)
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.020)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.040)
+    # failed stop RT = 0.100 s (greater than go RT = 0.030)
+    fail = make_stop_failure_early(ssd_ms=150, movement_onset_time=_CUE_ONSET + 0.100)
+
+    report = validate_stop_signal_data([go1, go2, fail])
+
+    assert report.rt_check_passed is False
+    assert "unexpected" in report.rt_check_note.lower()
+
+
+# Test V5: rt_check_note "No stop failures..." when no stop-failure trials
+def test_rt_check_note_no_stop_failures() -> None:
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    success = make_stop_success_early(ssd_ms=150)
+
+    report = validate_stop_signal_data([go1, go2, success])
+
+    assert report.failed_stop_rt_mean_s is None
+    assert "No stop failures" in report.rt_check_note
+
+
+# Test V6: rt_check_note "No responding go trials..." when no go responses
+def test_rt_check_note_no_responding_go_trials() -> None:
+    # Only stop failures — no go responding trials
+    fail = make_stop_failure_early(ssd_ms=150, movement_onset_time=_CUE_ONSET + 0.050)
+    miss = make_go_miss()
+
+    report = validate_stop_signal_data([fail, miss])
+
+    assert report.go_rt_mean_s is None
+    assert "No responding go trials" in report.rt_check_note
+
+
+# Test V7: n_late_stop_trials counts stop trials without stop_signal event
+def test_n_late_stop_trials_correct() -> None:
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    early_fail = make_stop_failure_early(ssd_ms=150, movement_onset_time=_CUE_ONSET + 0.040)
+    late1 = make_stop_failure_late()
+    late2 = make_stop_failure_late()
+
+    report = validate_stop_signal_data([go1, go2, early_fail, late1, late2])
+
+    assert report.n_late_stop_trials == 2
+
+
+# Test V8: n_excluded_for_ssrt equals n_late_stop_trials
+def test_n_excluded_for_ssrt_equals_n_late_stop() -> None:
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    late = make_stop_failure_late()
+    early_success = make_stop_success_early(ssd_ms=100)
+
+    report = validate_stop_signal_data([go1, go2, late, early_success])
+
+    assert report.n_excluded_for_ssrt == report.n_late_stop_trials
+
+
+# Test V9: independence_assumption_note is the exact fixed string
+def test_independence_assumption_note_is_fixed_string() -> None:
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+
+    report = validate_stop_signal_data([go1, go2])
+
+    assert report.independence_assumption_note == _INDEPENDENCE_NOTE
+
+
+# Test V10: empirical_stop_proportion = n_stop_trials / n_total_trials
+def test_empirical_stop_proportion_correct() -> None:
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    go3 = make_go_success(movement_onset_time=_CUE_ONSET + 0.060)
+    stop1 = make_stop_success_early(ssd_ms=150)
+
+    report = validate_stop_signal_data([go1, go2, go3, stop1])
+
+    assert math.isclose(report.empirical_stop_proportion, 1 / 4, abs_tol=1e-9)
+    assert report.n_total_trials == 4
+    assert report.n_stop_trials == 1
+    assert report.n_go_trials == 3
+
+
+# Test V11: inhibition_function_monotone=True when failure_rate rises with SSD
+def test_inhibition_function_monotone_true() -> None:
+    # SSD 100: 1 success, 0 failures → rate 0.0
+    # SSD 200: 1 failure, 0 successes → rate 1.0
+    # 0.0 → 1.0 is non-decreasing → monotone=True
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    s_success = make_stop_success_early(ssd_ms=100)
+    s_fail = make_stop_failure_early(ssd_ms=200, movement_onset_time=_CUE_ONSET + 0.040)
+
+    report = validate_stop_signal_data([go1, go2, s_success, s_fail])
+
+    assert report.inhibition_function_monotone is True
+
+
+# Test V12: inhibition_function_monotone=False when failure_rate decreases at any step
+def test_inhibition_function_monotone_false() -> None:
+    # SSD 100: all fail → rate 1.0
+    # SSD 200: all succeed → rate 0.0
+    # 1.0 → 0.0 is decreasing → monotone=False
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    s_fail_100 = make_stop_failure_early(ssd_ms=100, movement_onset_time=_CUE_ONSET + 0.040)
+    s_success_200 = make_stop_success_early(ssd_ms=200)
+
+    report = validate_stop_signal_data([go1, go2, s_fail_100, s_success_200])
+
+    assert report.inhibition_function_monotone is False
+
+
+# Test V13: inhibition_function_monotone=None when fewer than 2 SSD levels
+def test_inhibition_function_monotone_none_when_single_ssd() -> None:
+    # Only one SSD level — cannot assess monotonicity
+    go1 = make_go_success(movement_onset_time=_CUE_ONSET + 0.050)
+    go2 = make_go_success(movement_onset_time=_CUE_ONSET + 0.080)
+    s_success = make_stop_success_early(ssd_ms=150)
+
+    report = validate_stop_signal_data([go1, go2, s_success])
+
+    assert report.inhibition_function_monotone is None
