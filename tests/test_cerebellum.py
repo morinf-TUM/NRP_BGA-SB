@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from nrp_bga_sb.cerebellum import AdaptiveFilter, ForwardModelController
+from nrp_bga_sb.cerebellum import AdaptiveFilter, Cerebellum, ForwardModelController
 
 
 def test_adaptive_filter_rejects_bad_learning_rate():
@@ -87,3 +87,36 @@ def test_forward_model_output_length_matches_s():
     s = _min_jerk_s(37)
     traj = ForwardModelController(gain=0.5).integrate([1.0, 0.0], [0.0, 1.0], s)
     assert len(traj) == 37
+
+
+def test_cerebellum_precompensate_identity_when_adaptation_off():
+    cb = Cerebellum(adaptation_enabled=False)
+    cb.adaptive_filter.theta_hat = math.radians(30.0)  # would rotate if used
+    assert cb.precompensate([1.0, 0.0]) == pytest.approx([1.0, 0.0])
+
+
+def test_cerebellum_learn_noop_when_adaptation_off():
+    cb = Cerebellum(adaptation_enabled=False)
+    cb.learn(0.5)
+    assert cb.adaptive_filter.theta_hat == 0.0
+
+
+def test_cerebellum_learn_updates_when_adaptation_on():
+    cb = Cerebellum(adaptation_enabled=True, learning_rate=0.2)
+    cb.learn(1.0)
+    assert cb.adaptive_filter.theta_hat == pytest.approx(0.2)
+
+
+def test_cerebellum_integrate_straight_line_when_online_off():
+    s = _min_jerk_s(50)
+    P = [0.5, 0.5]
+    cb = Cerebellum(online_enabled=False)
+    traj = cb.integrate([1.0, 0.0], P, s)
+    assert traj[-1] == pytest.approx(P, abs=1e-6)  # ends at open-loop endpoint
+
+
+def test_cerebellum_reset_clears_filter():
+    cb = Cerebellum()
+    cb.learn(0.5)
+    cb.reset()
+    assert cb.adaptive_filter.theta_hat == 0.0

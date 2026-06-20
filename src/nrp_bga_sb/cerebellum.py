@@ -89,3 +89,60 @@ class ForwardModelController:
             out.append([float(pos[0]), float(pos[1])])
             prev_s = s
         return out
+
+
+# --- Cerebellum (composition) ---
+
+
+class Cerebellum:
+    """Composes the adaptation and online-feedback layers behind one interface.
+
+    The two layers are independently toggleable so each can be ablated and the
+    cerebellum-on/off sweep is a single code path.
+    """
+
+    def __init__(
+        self,
+        learning_rate: float = 0.1,
+        online_gain: float = 0.5,
+        adaptation_enabled: bool = True,
+        online_enabled: bool = True,
+    ) -> None:
+        self.adaptive_filter = AdaptiveFilter(learning_rate=learning_rate)
+        self._controller = ForwardModelController(gain=online_gain)
+        self._straight = ForwardModelController(gain=0.0)
+        self.adaptation_enabled = adaptation_enabled
+        self.online_enabled = online_enabled
+
+    def precompensate(self, desired_xy: list[float]) -> list[float]:
+        # Trigger: adaptation_enabled=False.
+        # Why: allow ablation of the feedforward layer; caller needs a copy
+        # to avoid mutation-tracking bugs.
+        # Outcome: returns list(desired_xy) when disabled (identity, a copy).
+        if self.adaptation_enabled:
+            return self.adaptive_filter.precompensate(desired_xy)
+        return list(desired_xy)
+
+    def integrate(
+        self,
+        desired_xy: list[float],
+        openloop_xy: list[float],
+        s_values: list[float],
+    ) -> list[list[float]]:
+        # Trigger: online_enabled=False.
+        # Why: allow ablation of the online feedback layer; straight-line path
+        # is a ForwardModelController with gain=0.0 for unified code path.
+        # Outcome: returns trajectory toward openloop_xy endpoint (gain=0) or
+        # toward desired_xy endpoint (gain=online_gain).
+        controller = self._controller if self.online_enabled else self._straight
+        return controller.integrate(desired_xy, openloop_xy, s_values)
+
+    def learn(self, angular_error_rad: float) -> None:
+        # Trigger: adaptation_enabled=False.
+        # Why: allow ablation of learning; no-op maintains state between trials.
+        # Outcome: filter learns from error, or no-op if learning is off.
+        if self.adaptation_enabled:
+            self.adaptive_filter.update(angular_error_rad)
+
+    def reset(self) -> None:
+        self.adaptive_filter.reset()
