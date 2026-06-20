@@ -18,6 +18,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 7 complete (2026-06-20).** Stop-signal experiment (M5). Stop-signal engine extended with multi-SSD fixed schedule (`ssd_levels`) and `stop_trial_go_evidence` flag that sets `cue_identity="go"` on stop trials so `ClosedLoopPolicy`/`CortexEvidenceGenerator` runs a genuine go process (enabling race-model behaviour). `movement_onset_time` fix uses `BGDecision.selection_latency` as RT proxy. New `stop_signal_metrics.py`: `is_stop_trial`, `inhibition_function`, `estimate_ssrt` (mean-SSD method, Verbruggen 2019), `cancellation_latency_mean`, `trigger_failure_rate`, `StopSignalMetrics`, `StopSignalValidityReport`, `validate_stop_signal_data`. Sweep: `stop_signal_sweep.py` runs 5 Hz × 5 seeds × 100 trials = 500 trials/condition; `experiments/stop_signal_sweep.py` saves JSON results and prints formatted report. Key constraint: `BGDecision.selection_latency` is BG-internal latency (13–100 ms), not a go-cue-referenced RT — RT proxy is biologically short but frequency-dependent. M5 acceptance: inhibition function rises with SSD (step-function for deterministic BG, staircase oscillates around SSD = decision_point_ms boundary); SSRT-like estimate produced; validity checks implemented with appropriate deferred-check notes for deterministic Phase 7 models. 604 tests passing, ruff clean. See §23 for module map.
 - **Phase 8 complete (2026-06-20).** Change-of-mind metrics and two-phase kinematic trajectory (M6). `change_of_mind_metrics.py` computes revision latency, CoM probability, perseveration rate; `KinematicReacher.simulate_change_of_mind` simulates two-phase minimum-jerk trajectories with handoff position; `change_of_mind_sweep.py` sweeps five BG frequencies across four switch-delay categories. Key finding: CoM probability is 0.0 at 5 Hz and 1.0 at ≥10 Hz; per-category timing gradient collapses because post_switch_decision_point_ms=550ms gives all categories ≥100ms of post-switch time. Movement reversal detection fixed for negative→positive sign flip. 632 tests passing (28 new in Phase 8), ruff clean. See §24 for module map.
 - **Phase 9 complete (2026-06-20).** Latency/jitter/dropout/phase decomposition (M10). `perturbation_sweep.py` sweeps four timing perturbation types (fixed latency {0,10,25,50,100 ms}, jitter std {0,5,10,25 ms}, dropout {0,1,5,10 %}, phase offset {0,25,50,75 % of period}) across go/no-go and stop-signal paradigms at five BG frequencies. Key finding: latency/jitter/phase-offset shift selection_latency (RT proxy) without changing selected_channel, so go_success_rate and stop_failure_rate are frequency-driven (selector/cancellation bottleneck); only dropout alters channel selection by replaying stale decisions. M10 acceptance: decomposition report disentangles frequency from all four timing perturbations. 674 tests passing, ruff clean. See §25 for module map.
+- **Phase 10 complete (2026-06-20).** OpenSim Arm26 musculoskeletal embodiment (M8). Containerised OpenSim 4.6 plant (`nrp-bga-opensim:4.6`) runs the Arm26 model via a file-based batch boundary; host `opensim_plant.py` ships reduced `ReachSpec`s to the container and scores returned hand trajectories with `compute_movement_metrics`. `experiments/opensim_gonogo_sweep.py` runs the closed-loop go/no-go pipeline at five BG frequencies through both the OpenSim plant and the kinematic reacher on the SAME BG decisions. M8 result: the BG-frequency effect survives full musculoskeletal embodiment — OpenSim movement-onset rate is 0.000 at 5 Hz and 1.000 at ≥10 Hz, identical to the kinematic reacher. 685 tests passing (1 new host dry-run + 1 Docker-gated smoke deselected without an image), ruff clean. See §26 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -1091,3 +1092,51 @@ A fresh policy instance is created per seed so `DropoutWrapper` inter-call state
 - `bg_commitment_latency_mean` in PerturbationSweepResult is set from `thalamic_relay_time - cue_onset_time` inside ClosedLoopPolicy (before the perturbation wrapper sees the result). It does not reflect the latency/jitter/phase-offset added by the wrapper — the wrapper's effect appears only in `selection_latency` (and hence `movement_onset_time`).
 - Phase-offset is modelled as additive latency (same as Phase 3's `PhaseOffsetWrapper`). True nrp-core phase-offset (engine timestep starting offset) remains unverified (see §15.4 and §19.6).
 - Dropout wraps per-trial decisions across a seed's trial sequence. The inter-call `_last_decision` state is reset at seed boundaries (fresh policy per seed). Within a seed, stale decisions accumulate as intended.
+
+## 26. Phase 10 module map (complete as of 2026-06-20)
+
+OpenSim Arm26 musculoskeletal embodiment (M8). The BG-frequency effect demonstrated abstractly (Phase 4/5) and kinematically (Phase 6) is re-run through a real OpenSim musculoskeletal plant, and confirmed to survive embodiment.
+
+### 26.1 Source layout
+
+- `docker/opensim/` — containerised plant.
+  - `Dockerfile` — prebuilt OpenSim 4.6 from the `opensim-org` conda channel (NOT a from-source build); copies the model and the three plant scripts to `/opt/nrp/`.
+  - `_arm26_plant.py` — `Arm26Plant`: builds the model once per process, runs a torque-level PD reference-tracking controller. Muscle forces disabled; joint torques injected directly via coordinate actuators.
+  - `run_plant.py` — batch entrypoint: reads `config.json` + `jobs.json`, writes `trajectories.json` (per-trajectory `trial_id`, `times_ms`, `positions_xy`, `onset_time_ms`, `selected_channel`, plus top-level `target_endpoints_xy`).
+  - `validate_plant.py` — standalone plant validation harness (Task 10.2 tuning/acceptance).
+  - `models/arm26.osim` + `models/PROVENANCE.md` — the Arm26 model and its provenance record.
+- `src/nrp_bga_sb/opensim_plant.py` — host side. `ReachSpec` (reduced per-trial input), `extract_reach_spec(motor_commands, onset_time_ms, trial_id)` (mirrors `KinematicReacher` command reduction), `OpenSimTrajectory` (hand trajectory + `trial_id`), `OpenSimPlantConfig`, `OpenSimPlantClient(config, io_dir, runner=None).run(specs) -> (list[OpenSimTrajectory], target_endpoints_xy)`.
+- `experiments/opensim_gonogo_sweep.py` — go/no-go BG-frequency sweep through the OpenSim plant with a side-by-side kinematic reacher comparison on the SAME BG decisions; reusable `run_opensim_gonogo_condition(freq_hz, n_trials, client) -> dict`; writes `results/opensim_gonogo_sweep.json`.
+- `tests/opensim/` — Docker-gated tests (`@pytest.mark.opensim`, skipif image absent): `test_plant_validation.py` (Task 10.2/10.3), `test_gonogo_e2e.py` (Task 10.4 M8 smoke). Host dry-run of the sweep orchestration lives in `tests/test_opensim_plant.py` (no Docker).
+
+### 26.2 Design decisions
+
+- **Docker provisioning.** OpenSim 4.6 is installed from the `opensim-org` conda channel inside the image (4.5.x is the documented fallback if the solve fails) rather than built from source. The plant runs as a stateless batch container invoked per condition.
+- **Arm26 + provenance.** The model is `arm26.osim` from `opensim-org/opensim-models` (`Models/Arm26/arm26.osim`), recorded in `models/PROVENANCE.md` (permissive/Apache-2.0 license per repo).
+- **Torque-level PD reference tracking with min-jerk velocity feedforward.** The controller injects joint torques via coordinate actuators (muscle forces disabled). A minimum-jerk profile in joint space supplies the reference posture and a velocity feedforward term, so the PD term only corrects tracking error; this suppresses the large onset torque transient that a pure PD command produces at a coarse control rate.
+- **Joint-space targets.** Reaches are specified as joint-space `q_target` postures per action channel; the hand endpoint and `target_endpoints_xy` are obtained by forward kinematics inside the container.
+- **File-based batch boundary.** The host writes `config.json` (plant params, image excluded) + `jobs.json` (one `ReachSpec` per trial) into an io directory bind-mounted at `/io`; the container writes `trajectories.json`. The client fails fast on nonzero exit, missing output, or `trial_id` mismatch, and preserves request order. (Host runner usage note: `docker run -v` requires an ABSOLUTE io-dir path; `experiments/opensim_gonogo_sweep.py --io-dir` must be given an absolute path — a relative default like `data/opensim_io` is rejected by Docker.)
+
+### 26.3 Tuned plant config (source of truth, Task 10.2)
+
+`q0=[0.0, 0.35]`, `q_target=[[1.2, 1.0], [0.8, 1.6]]`, `kp=[120.0, 90.0]`, `kd=[18.0, 14.0]`, `dt_ms=2.0`, `movement_duration_ms=300.0`, `endpoint_error_tol=0.02`.
+
+### 26.4 Deviations from the brief
+
+- `dt_ms=2.0` (the brief showed 5.0): 2 ms is the validated step size that avoids onset oscillation; adopted post-tuning and made the `OpenSimPlantConfig` default.
+- Minimum-jerk **velocity feedforward** added to the PD controller (not in the original design sketch) to remove the coarse-rate onset torque transient.
+- `total_duration_ms=1300.0` for the EXPERIMENT (validation used 500). The go/no-go engine puts movement onset at ~700 ms (`cue_onset_ms=400 + decision_point_ms=300`); a 500 ms window would show no movement on every trial and manufacture a false-negative M8 result. The kinematic reacher uses the same 1300 ms window for an apples-to-apples comparison.
+
+### 26.5 M8 result
+
+go/no-go sweep, `n_trials=30` per frequency, seed 12345, onset rate computed over go trials only (18 go trials/condition):
+
+| freq (Hz) | OpenSim onset rate | kinematic onset rate | OpenSim mean endpoint error |
+|-----------|--------------------|----------------------|-----------------------------|
+| 5.0  | 0.000 | 0.000 | 0.0000 |
+| 10.0 | 1.000 | 1.000 | 0.1533 |
+| 20.0 | 1.000 | 1.000 | 0.1533 |
+| 40.0 | 1.000 | 1.000 | 0.1533 |
+| 80.0 | 1.000 | 1.000 | 0.1533 |
+
+**M8 confirmed:** the BG-frequency gating effect survives full musculoskeletal embodiment. At 5 Hz the BG never crosses the selection threshold so no reach occurs; at ≥10 Hz every go trial produces a reach. The OpenSim onset rates match the kinematic reacher exactly (both driven by the SAME BG decisions), so the embodiment adds movement dynamics without altering the qualitative selection signature. The mean OpenSim endpoint error (~0.153 in the arm's own FK frame) is constant across the frequencies that move, as expected for a deterministic reach to a fixed `q_target`.

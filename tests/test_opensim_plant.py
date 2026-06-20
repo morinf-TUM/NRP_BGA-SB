@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -107,3 +108,35 @@ def test_client_fails_fast_on_missing_output(tmp_path):
     with pytest.raises(RuntimeError, match="no output"):
         client.run([ReachSpec(trial_id="x", selected_channel=0, onset_time_ms=0.0,
                               gate_gain=1.0, gate_state="open")])
+
+
+# --- Task 10.4: host dry-run of the go/no-go sweep orchestration (no Docker) ---
+
+
+def test_gonogo_condition_builds_specs_without_container(tmp_path):
+    """Prove run_opensim_gonogo_condition assembles specs and scores trajectories
+    with a fake runner echoing one no-movement trajectory per job — no container."""
+    from experiments.opensim_gonogo_sweep import run_opensim_gonogo_condition
+
+    captured = {}
+
+    def fake_runner(argv):
+        jobs = json.loads((tmp_path / "jobs.json").read_text())["jobs"]
+        captured["n"] = len(jobs)
+        out = argv[argv.index("--out") + 1]
+        # echo a zero-movement trajectory per job (trial_id required for id match)
+        trajs = [{"trial_id": j["trial_id"], "times_ms": [0.0, 5.0],
+                  "positions_xy": [[0.0, 0.0], [0.0, 0.0]],
+                  "onset_time_ms": None, "selected_channel": -1} for j in jobs]
+        Path(out.replace("/io", str(tmp_path))).write_text(json.dumps(
+            {"target_endpoints_xy": [[0.3, 0.4], [0.1, 0.05]], "trajectories": trajs}))
+        return 0
+
+    cfg = OpenSimPlantConfig(image="x", q0=[0.0, 0.35], q_target=[[1.2, 1.0], [0.8, 1.6]],
+                             kp=[120.0, 90.0], kd=[18.0, 14.0])
+    client = OpenSimPlantClient(cfg, io_dir=tmp_path, runner=fake_runner)
+    res = run_opensim_gonogo_condition(40.0, n_trials=8, client=client)
+    assert res["n_trials"] == 8
+    assert captured["n"] == 8                       # all trials shipped as specs
+    assert res["n_go_trials"] >= 1                  # at least one go trial scored
+    assert res["opensim_movement_onset_rate"] == 0.0  # all echoed as no-movement

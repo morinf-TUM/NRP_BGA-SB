@@ -1,0 +1,42 @@
+[
+  {
+    "frequency_hz": 5.0,
+    "n_trials": 30,
+    "n_go_trials": 18,
+    "opensim_movement_onset_rate": 0.0,
+    "kinematic_movement_onset_rate": 0.0,
+    "opensim_mean_endpoint_error": 0.0
+  },
+  {
+    "frequency_hz": 10.0,
+    "n_trials": 30,
+    "n_go_trials": 18,
+    "opensim_movement_onset_rate": 1.0,
+    "kinematic_movement_onset_rate": 1.0,
+    "opensim_mean_endpoint_error": 0.15328198613952804
+  },
+  {
+    "frequency_hz": 20.0,
+    "n_trials": 30,
+    "n_go_trials": 18,
+    "opensim_movement_onset_rate": 1.0,
+    "kinematic_movement_onset_rate": 1.0,
+    "opensim_mean_endpoint_error": 0.15328198613952804
+  },
+  {
+    "frequency_hz": 40.0,
+    "n_trials": 30,
+    "n_go_trials": 18,
+    "opensim_movement_onset_rate": 1.0,
+    "kinematic_movement_onset_rate": 1.0,
+    "opensim_mean_endpoint_error": 0.15328198613952804
+  },
+  {
+    "frequency_hz": 80.0,
+    "n_trials": 30,
+    "n_go_trials": 18,
+    "opensim_movement_onset_rate": 1.0,
+    "kinematic_movement_onset_rate": 1.0,
+    "opensim_mean_endpoint_error": 0.15328198613952804
+  }
+]
