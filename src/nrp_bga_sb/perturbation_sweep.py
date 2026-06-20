@@ -158,7 +158,9 @@ def _make_label(perturbation_type: PerturbationType, perturbation_value: float) 
     elif perturbation_type == "phase_offset":
         return f"phase_offset={perturbation_value * 100:.0f}%"
     else:
-        return f"{perturbation_type}={perturbation_value}"
+        raise ValueError(
+            f"Unknown perturbation_type: {perturbation_type!r}. Must be one of 'latency', 'jitter', 'dropout', 'phase_offset'."
+        )
 
 
 # --- Go/no-go condition runner ---
