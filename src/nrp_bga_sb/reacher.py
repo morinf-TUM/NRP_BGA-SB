@@ -1,9 +1,8 @@
-"""2D point-mass kinematic reacher: trajectory simulation (Task 6.1).
+"""2D point-mass kinematic reacher: trajectory simulation (Tasks 6.1, 8.2).
 
 Converts a ClosedLoopPolicy motor_command_series into a minimum-jerk 2D
-position time-series. Phase 6 uses a single motor command per trial (one
-ClosedLoopPolicy call per task-engine trial). Phase 8 may extend this to
-multi-command trajectories for change-of-mind reversal.
+position time-series. Phase 6 uses a single motor command per trial. Phase 8
+adds simulate_change_of_mind() for two-phase reversal trajectories.
 """
 from __future__ import annotations
 
@@ -170,4 +169,111 @@ class KinematicReacher:
             positions_xy=positions_xy,
             onset_time_ms=actual_onset,
             selected_channel=selected_channel,
+        )
+
+    def simulate_change_of_mind(
+        self,
+        motor_commands: list[MotorCommand],
+        pre_switch_onset_ms: float,
+        switch_time_ms: float,
+        total_duration_ms: float = 1500.0,
+    ) -> ReacherTrajectory:
+        """Simulate a two-phase change-of-mind trajectory.
+
+        Phase 1 (pre_switch_onset_ms → switch_time_ms):
+            Minimum-jerk movement from origin toward motor_commands[0]'s target
+            (scaled by gate_gain). Uses selected_channel from argmax of command[0].
+
+        Phase 2 (switch_time_ms → end):
+            Minimum-jerk movement from the switch_position (position at switch_time_ms)
+            toward motor_commands[1]'s target (scaled by gate_gain).
+
+        Args:
+            motor_commands:       Must have exactly 2 entries: [pre_switch, post_switch].
+                                  Both must have gate_state != "closed".
+            pre_switch_onset_ms:  Absolute ms from trial start when pre-switch movement began.
+                                  Extract from motor_commands[0].sim_time * 1000.
+            switch_time_ms:       Absolute ms from trial start of the evidence_change event.
+            total_duration_ms:    Total simulation window length in ms.
+
+        Returns:
+            ReacherTrajectory with selected_channel = post-switch channel (motor_commands[1]).
+            onset_time_ms is set to pre_switch_onset_ms.
+
+        Raises:
+            ValueError if len(motor_commands) != 2.
+            ValueError if either command has gate_state == "closed".
+        """
+        # --- Validation ---
+        # Trigger: caller passes wrong number of commands.
+        # Why: this method models exactly pre-switch + post-switch; any other count
+        #      means the caller has wrong data and we must not silently extrapolate.
+        # Outcome: fail fast so the caller can fix the upstream data.
+        if len(motor_commands) != 2:
+            raise ValueError(
+                f"simulate_change_of_mind requires exactly 2 motor commands, "
+                f"got {len(motor_commands)}"
+            )
+        for i, cmd in enumerate(motor_commands):
+            if cmd.gate_state == "closed":
+                raise ValueError(
+                    f"motor_commands[{i}] has gate_state='closed'; "
+                    "change-of-mind trajectory requires open or partial gate on both commands"
+                )
+
+        n_steps = int(round(total_duration_ms / self.config.dt_ms)) + 1
+        times_ms = [i * self.config.dt_ms for i in range(n_steps)]
+
+        # --- Phase 1 setup ---
+        cmd0 = motor_commands[0]
+        ch0 = int(np.argmax(cmd0.command))
+        tx0, ty0 = self.config.target_positions[ch0]
+        # gate_gain ∈ [0, 1] scales the endpoint; partial gate → short of target.
+        ex0, ey0 = tx0 * cmd0.gate_gain, ty0 * cmd0.gate_gain
+
+        # Reuse the same movement duration for both phases so the speed profile
+        # is identical in each phase (minimum-jerk over movement_duration_ms).
+        T = self.config.movement_duration_ms
+
+        # --- Phase 2 setup ---
+        cmd1 = motor_commands[1]
+        ch1 = int(np.argmax(cmd1.command))
+        tx1, ty1 = self.config.target_positions[ch1]
+        ex1, ey1 = tx1 * cmd1.gate_gain, ty1 * cmd1.gate_gain
+
+        # --- Trajectory integration ---
+        # switch_pos tracks the arm position continuously during phase 1 so the
+        # last assignment captures the position exactly at switch_time_ms.
+        positions_xy: list[list[float]] = []
+        switch_pos = [0.0, 0.0]
+
+        for t_ms in times_ms:
+            if t_ms < pre_switch_onset_ms:
+                # Before movement onset: hold at origin.
+                positions_xy.append([0.0, 0.0])
+            elif t_ms <= switch_time_ms:
+                # Phase 1: minimum-jerk toward pre-switch scaled endpoint.
+                s = _minimum_jerk_scalar(t_ms - pre_switch_onset_ms, T)
+                pos = [ex0 * s, ey0 * s]
+                positions_xy.append(pos)
+                # Trigger: continuously update switch_pos during phase 1.
+                # Why: the loop condition uses <=, so the last assignment when
+                #      t_ms == switch_time_ms captures the handoff position.
+                # Outcome: phase 2 begins exactly from switch_pos, not from origin.
+                switch_pos = pos
+            else:
+                # Phase 2: minimum-jerk from switch_pos toward post-switch endpoint.
+                # The movement vector is (ex1 - switch_pos[0], ey1 - switch_pos[1]);
+                # s interpolates from 0 (switch_pos) to 1 (ex1, ey1) over T ms.
+                t_post = t_ms - switch_time_ms
+                s = _minimum_jerk_scalar(t_post, T)
+                px = switch_pos[0] + (ex1 - switch_pos[0]) * s
+                py = switch_pos[1] + (ey1 - switch_pos[1]) * s
+                positions_xy.append([px, py])
+
+        return ReacherTrajectory(
+            times_ms=times_ms,
+            positions_xy=positions_xy,
+            onset_time_ms=pre_switch_onset_ms,
+            selected_channel=ch1,  # post-switch channel is the final committed direction
         )
