@@ -15,6 +15,7 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 4 complete (2026-06-19).** Full abstract closed loop: cortical evidence generator → BG → thalamic gate → motor command. M4-prep acceptance criterion verified: BG-frequency manipulation propagates to abstract motor output (5 Hz → all go trials miss; 40 Hz → all succeed); trial logs remain valid across all four paradigms; 422 tests passing, ruff clean. See §20 for module map.
 - **Phase 5 complete (2026-06-19).** Frequency-sweep experiment and abstract embodiment (M4 milestone). Switch_* post-switch evidence direction fixed in CortexEvidenceGenerator; sweep module (`SweepConditionResult`, `run_condition`) and stats module (`bootstrap_ci`, `aggregate_by_frequency`, `fit_frequency_slope`, `format_sweep_report`) implemented; frequency_sweep.py runs 900 conditions and saves results; ablation_frequency_v2.py re-runs the Phase 3 ablation with ClosedLoopPolicy. Key empirical finding: GPR selection threshold ≈ 0.607; at 5 Hz all four BG frequency knobs share the same miss boundary (period=200 ticks = accumulation window). 499 tests passing, ruff clean. See §21 for module map.
 - **Phase 6 complete (2026-06-20).** Kinematic reaching surrogate (M7, brought forward). `KinematicReacher` simulates 2D minimum-jerk trajectories from `ClosedLoopPolicy` motor commands; `compute_movement_metrics` extracts onset time, endpoint error, partial amplitude, curvature, reversal time, and peak velocity; `run_reacher_condition` augments Phase 5 sweep conditions with movement-level metrics; `experiments/kinematic_sweep.py` runs 150-condition sweep (5×3×2×5). Key findings: `movement_onset_rate` tracks `go_success_rate` within 0.001 across all conditions; thalamic margin threshold acts as a second selection gate (marginal BG decisions with margin < 0.05 produce engine "success" but no motor movement). Pre-merge fix: `ThalamusGate` boundary condition corrected (`< → <=` on `margin_threshold` so exact-boundary margin maps to "closed" not "partial" gate). 530 tests passing, ruff clean. See §22 for module map.
+- **Phase 7 complete (2026-06-20).** Stop-signal experiment (M5). Stop-signal engine extended with multi-SSD fixed schedule (`ssd_levels`) and `stop_trial_go_evidence` flag that sets `cue_identity="go"` on stop trials so `ClosedLoopPolicy`/`CortexEvidenceGenerator` runs a genuine go process (enabling race-model behaviour). `movement_onset_time` fix uses `BGDecision.selection_latency` as RT proxy. New `stop_signal_metrics.py`: `is_stop_trial`, `inhibition_function`, `estimate_ssrt` (mean-SSD method, Verbruggen 2019), `cancellation_latency_mean`, `trigger_failure_rate`, `StopSignalMetrics`, `StopSignalValidityReport`, `validate_stop_signal_data`. Sweep: `stop_signal_sweep.py` runs 5 Hz × 5 seeds × 100 trials = 500 trials/condition; `experiments/stop_signal_sweep.py` saves JSON results and prints formatted report. Key constraint: `BGDecision.selection_latency` is BG-internal latency (13–100 ms), not a go-cue-referenced RT — RT proxy is biologically short but frequency-dependent. M5 acceptance: inhibition function rises with SSD (step-function for deterministic BG, staircase oscillates around SSD = decision_point_ms boundary); SSRT-like estimate produced; validity checks implemented with appropriate deferred-check notes for deterministic Phase 7 models. 604 tests passing, ruff clean. See §23 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -834,3 +835,108 @@ results/                  — generated output (git-ignored)
 - **`movement_reversal_time_ms` always `None`**: the reversal detection path is correct but never exercised in Phase 6 (all movements are monotone). Additionally, the reversal timestamp uses the end-of-interval sample rather than an interpolated zero-crossing — fix before Phase 8 when reversals become measurable.
 - **`trajectory_curvature` always `0.0`**: single-command straight-line movements have zero perpendicular deviation. Curvature becomes non-zero in Phase 8 when multi-command trajectories are simulated.
 - **Endpoint error reflects partial gate, not targeting error**: at typical BG margins (≈ 0.1–0.2), `ThalamusGate` produces partial gain (≈ 0.2–0.6), so `endpoint_error ≈ (1 − gain) × 1.0`. This is a gating-fidelity metric, not a spatial accuracy metric.
+
+---
+
+## 23. Phase 7 module map (stable as of 2026-06-20)
+
+### 23.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    engines/
+        stop_signal.py  — MODIFIED: ssd_levels, stop_trial_go_evidence,
+                          movement_onset_time RT fix (Task 7.1)
+    stop_signal_metrics.py  — is_stop_trial, extract_ssd_ms, go_rt_stats,
+                              failed_stop_rt_mean, inhibition_function,
+                              estimate_ssrt, cancellation_latency_mean,
+                              trigger_failure_rate, StopSignalMetrics,
+                              StopSignalValidityReport, validate_stop_signal_data
+                              (Tasks 7.2 + 7.3)
+    stop_signal_sweep.py    — FREQUENCIES_HZ, N_SEEDS, N_TRIALS_PER_SEED,
+                              StopSignalSweepResult, run_stop_signal_condition,
+                              format_sweep_report (Task 7.4)
+
+experiments/
+    stop_signal_sweep.py  — Phase 7 sweep runner script (Task 7.4)
+
+tests/
+    test_engine_stopsignal.py  — EXTENDED: 10 new tests (ssd_levels cycling,
+                                 stop_trial_go_evidence, selection_latency RT)
+    test_stop_signal_metrics.py — 48 tests: trial ID helpers, RT stats, inhibition
+                                  function, SSRT, cancellation latency, trigger
+                                  failure, StopSignalMetrics, validity report
+    test_stop_signal_sweep.py   — 16 tests: constants, condition runner, result
+                                  structure, format report (fast: n=10, n_seeds=2)
+
+results/                    — generated output (git-ignored)
+    stop_signal_sweep_results.json
+```
+
+### 23.2 StopSignalConfig extensions (Task 7.1)
+
+Two new backward-compatible fields added to the `@dataclass`:
+
+| Field | Default | Purpose |
+|---|---|---|
+| `ssd_levels: list[int] \| None` | `None` | When `use_staircase=False` and set: cycles through SSD values round-robin per stop trial |
+| `stop_trial_go_evidence: bool` | `False` | When `True`: stop trials use `cue_identity="go"` so `CortexEvidenceGenerator` generates directed go evidence, enabling race-model behaviour |
+
+`movement_onset_time` fix: uses `go_cue_onset_ms + int(selection_latency * 1000)` when `BGDecision.selection_latency > 0`; falls back to `decision_abs_ms`. Event sim_time is clamped to `max(movement_onset_ms, decision_abs_ms)` to preserve log ordering invariant.
+
+### 23.3 Stop-signal metrics (Task 7.2)
+
+`is_stop_trial(trial)` uses three OR-criteria: `cue_identity == "stop"` OR `failure_mode == "stop_failure"` OR stop_signal event in events. This covers both `stop_trial_go_evidence` modes.
+
+SSD extraction: `extract_ssd_ms(trial)` reads `payload["ssd_ms"]` from the stop_signal event; returns `None` for late-stop trials (SSD ≥ decision_point_ms, no event logged).
+
+SSRT estimation (mean-SSD method, Verbruggen 2019): `SSRT = mean go RT − mean SSD`, where SSD mean excludes late-stop trials. With the 1-up/1-down staircase converging to ~50% inhibition, mean SSD ≈ SSD₅₀.
+
+`trigger_failure_rate`: fraction of stop-failure trials where the stop_signal event is absent (SSD ≥ decision_point_ms; mechanically impossible to inhibit).
+
+### 23.4 Validity report (Task 7.3)
+
+`validate_stop_signal_data(trials, intended_stop_proportion)` runs five soft checks:
+
+1. **RT check**: failed-stop RT vs. go RT. For deterministic BG models (Phase 7), RT_failed_stop = RT_go (same `selection_latency`); the report emits a specific deferred-check note rather than flagging an error.
+2. **Inhibition function monotonicity**: non-decreasing failure_rate with SSD.
+3. **Exclusion tracking**: `n_late_stop_trials` and `n_excluded_for_ssrt`.
+4. **Empirical stop proportion**: `n_stop_trials / n_total_trials`.
+5. **Independence assumption**: fixed documentation string (not empirically testable from behaviour).
+
+### 23.5 BG-frequency sweep design (Task 7.4)
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `FREQUENCIES_HZ` | [5, 10, 20, 40, 80] Hz | Same as Phase 5 sweep |
+| `N_SEEDS` | 5 | Stochastic averaging |
+| `N_TRIALS_PER_SEED` | 100 | 500 trials/condition ≥ M5 threshold |
+| `STOP_PROPORTION` | 0.25 | Verbruggen 2019 recommendation |
+| `PEAK_SALIENCE` | 0.85 | Low conflict: go process active at ≥10 Hz |
+| `stop_trial_go_evidence` | `True` | Race-model behaviour for inhibition function |
+| `use_staircase` | `True` | Targets ~50% inhibition per Verbruggen 2019 |
+
+### 23.6 Key constraint: selection_latency semantics
+
+`BGDecision.selection_latency` is documented as "time from BG input receipt to this decision (s)" — a BG-internal latency of 13–100 ms. In Phase 7, this is used as an RT proxy:
+- RT = `movement_onset_time − cue_onset_time = selection_latency` (seconds).
+- Biologically implausible (real RTs: 200–600 ms) but frequency-dependent (low conflict ≈ 13 ms, medium ≈ 26 ms, no-select = 100 ms).
+- Consequence: failed-stop RT ≈ go RT in deterministic Phase 7 models (validity check deferred to Phase 9+).
+- Phase 9+ should either: (a) route the actual go-cue-referenced selection tick time through `selection_latency`, or (b) make the RT computation in `stop_signal_metrics` aware of the `go_cue_onset_ms` offset.
+
+### 23.7 M5 milestone acceptance (Phase 7)
+
+- Stop-signal engine Verbruggen 2019 compliant (staircase + fixed-SSD modes): ✓
+- Inhibition function rises with SSD (step-function at decision_point_ms boundary): ✓
+- SSRT-like estimate produced (mean-SSD method): ✓
+- Stop-signal validity checks implemented with documented deferred cases: ✓
+- BG-frequency sweep produces per-condition metrics and validity reports: ✓
+- 604 tests passing (74 new in Phase 7); ruff clean.
+
+### 23.8 Known constraints at Phase 7
+
+- **Deterministic inhibition**: `BGAdapter` returns `selected_channel=−1` whenever `stop_signal_present=True`. The inhibition function is a step function at SSD = decision_point_ms, not a smooth sigmoid. SSRT is meaningful but degenerate (≈ 0).
+- **RT proxy**: `selection_latency` is BG-internal (13–100 ms), not a go-cue-referenced RT. Validity check (failed-stop RT < go RT) shows equality in Phase 7; deferred to Phase 9+ with RT variability.
+- **`ssd_levels` with staircase**: `ssd_levels` is ignored when `use_staircase=True`; fixed multi-SSD schedule requires `use_staircase=False, ssd_levels=[...]`.
+- **Late-stop identification with `stop_trial_go_evidence=True`**: late-stop successes (`cue_identity="go"`, `success=True`, no stop_signal event) are indistinguishable from go-success trials in the log. This case is rare in practice (directed go evidence causes BG selection; late-stop success would require BG returning −1 spontaneously).
+- **`reversal_time_ms`** and **`trajectory_curvature`** limitations from Phase 6 still apply to any reacher integration in Phase 8.
