@@ -1,8 +1,9 @@
 import math
 
+import numpy as np
 import pytest
 
-from nrp_bga_sb.cerebellum import AdaptiveFilter
+from nrp_bga_sb.cerebellum import AdaptiveFilter, ForwardModelController
 
 
 def test_adaptive_filter_rejects_bad_learning_rate():
@@ -44,3 +45,45 @@ def test_adaptive_filter_reset():
     assert af.theta_hat != 0.0
     af.reset()
     assert af.theta_hat == 0.0
+
+
+def _min_jerk_s(n: int) -> list[float]:
+    out = []
+    for i in range(n):
+        tau = i / (n - 1)
+        out.append(10 * tau**3 - 15 * tau**4 + 6 * tau**5)
+    return out
+
+
+def test_forward_model_rejects_bad_gain():
+    with pytest.raises(ValueError):
+        ForwardModelController(gain=-0.1)
+    with pytest.raises(ValueError):
+        ForwardModelController(gain=1.1)
+
+
+def test_forward_model_gain_zero_reproduces_openloop():
+    s = _min_jerk_s(50)
+    D = [1.0, 0.0]
+    P = [math.cos(math.radians(30)), math.sin(math.radians(30))]  # rotated endpoint
+    fmc = ForwardModelController(gain=0.0)
+    traj = fmc.integrate(D, P, s)
+    # endpoint matches the open-loop perturbed endpoint P
+    assert traj[-1] == pytest.approx(P, abs=1e-6)
+
+
+def test_forward_model_gain_reduces_endpoint_error():
+    s = _min_jerk_s(200)
+    D = np.array([1.0, 0.0])
+    P = np.array([math.cos(math.radians(30)), math.sin(math.radians(30))])
+    err_open = float(np.linalg.norm(P - D))
+    fmc = ForwardModelController(gain=0.6)
+    traj = fmc.integrate(list(D), list(P), s)
+    err_corrected = float(np.linalg.norm(np.array(traj[-1]) - D))
+    assert err_corrected < err_open
+
+
+def test_forward_model_output_length_matches_s():
+    s = _min_jerk_s(37)
+    traj = ForwardModelController(gain=0.5).integrate([1.0, 0.0], [0.0, 1.0], s)
+    assert len(traj) == 37
