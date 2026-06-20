@@ -16,6 +16,8 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 5 complete (2026-06-19).** Frequency-sweep experiment and abstract embodiment (M4 milestone). Switch_* post-switch evidence direction fixed in CortexEvidenceGenerator; sweep module (`SweepConditionResult`, `run_condition`) and stats module (`bootstrap_ci`, `aggregate_by_frequency`, `fit_frequency_slope`, `format_sweep_report`) implemented; frequency_sweep.py runs 900 conditions and saves results; ablation_frequency_v2.py re-runs the Phase 3 ablation with ClosedLoopPolicy. Key empirical finding: GPR selection threshold ≈ 0.607; at 5 Hz all four BG frequency knobs share the same miss boundary (period=200 ticks = accumulation window). 499 tests passing, ruff clean. See §21 for module map.
 - **Phase 6 complete (2026-06-20).** Kinematic reaching surrogate (M7, brought forward). `KinematicReacher` simulates 2D minimum-jerk trajectories from `ClosedLoopPolicy` motor commands; `compute_movement_metrics` extracts onset time, endpoint error, partial amplitude, curvature, reversal time, and peak velocity; `run_reacher_condition` augments Phase 5 sweep conditions with movement-level metrics; `experiments/kinematic_sweep.py` runs 150-condition sweep (5×3×2×5). Key findings: `movement_onset_rate` tracks `go_success_rate` within 0.001 across all conditions; thalamic margin threshold acts as a second selection gate (marginal BG decisions with margin < 0.05 produce engine "success" but no motor movement). Pre-merge fix: `ThalamusGate` boundary condition corrected (`< → <=` on `margin_threshold` so exact-boundary margin maps to "closed" not "partial" gate). 530 tests passing, ruff clean. See §22 for module map.
 - **Phase 7 complete (2026-06-20).** Stop-signal experiment (M5). Stop-signal engine extended with multi-SSD fixed schedule (`ssd_levels`) and `stop_trial_go_evidence` flag that sets `cue_identity="go"` on stop trials so `ClosedLoopPolicy`/`CortexEvidenceGenerator` runs a genuine go process (enabling race-model behaviour). `movement_onset_time` fix uses `BGDecision.selection_latency` as RT proxy. New `stop_signal_metrics.py`: `is_stop_trial`, `inhibition_function`, `estimate_ssrt` (mean-SSD method, Verbruggen 2019), `cancellation_latency_mean`, `trigger_failure_rate`, `StopSignalMetrics`, `StopSignalValidityReport`, `validate_stop_signal_data`. Sweep: `stop_signal_sweep.py` runs 5 Hz × 5 seeds × 100 trials = 500 trials/condition; `experiments/stop_signal_sweep.py` saves JSON results and prints formatted report. Key constraint: `BGDecision.selection_latency` is BG-internal latency (13–100 ms), not a go-cue-referenced RT — RT proxy is biologically short but frequency-dependent. M5 acceptance: inhibition function rises with SSD (step-function for deterministic BG, staircase oscillates around SSD = decision_point_ms boundary); SSRT-like estimate produced; validity checks implemented with appropriate deferred-check notes for deterministic Phase 7 models. 604 tests passing, ruff clean. See §23 for module map.
+- **Phase 8 complete (2026-06-20).** Change-of-mind metrics and two-phase kinematic trajectory (M6). `change_of_mind_metrics.py` computes revision latency, CoM probability, perseveration rate; `KinematicReacher.simulate_change_of_mind` simulates two-phase minimum-jerk trajectories with handoff position; `change_of_mind_sweep.py` sweeps five BG frequencies across four switch-delay categories. Key finding: CoM probability is 0.0 at 5 Hz and 1.0 at ≥10 Hz; per-category timing gradient collapses because post_switch_decision_point_ms=550ms gives all categories ≥100ms of post-switch time. Movement reversal detection fixed for negative→positive sign flip. 632 tests passing (28 new in Phase 8), ruff clean. See §24 for module map.
+- **Phase 9 complete (2026-06-20).** Latency/jitter/dropout/phase decomposition (M10). `perturbation_sweep.py` sweeps four timing perturbation types (fixed latency {0,10,25,50,100 ms}, jitter std {0,5,10,25 ms}, dropout {0,1,5,10 %}, phase offset {0,25,50,75 % of period}) across go/no-go and stop-signal paradigms at five BG frequencies. Key finding: latency/jitter/phase-offset shift selection_latency (RT proxy) without changing selected_channel, so go_success_rate and stop_failure_rate are frequency-driven (selector/cancellation bottleneck); only dropout alters channel selection by replaying stale decisions. M10 acceptance: decomposition report disentangles frequency from all four timing perturbations. 674 tests passing, ruff clean. See §25 for module map.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -1002,3 +1004,90 @@ tests/
 
 - All four switch categories collapse to identical rates at every frequency because the generous post-switch window (500ms for early, 100ms for very_late) is always sufficient for the BG at ≥ 10 Hz. A future experiment reducing post_switch_decision_point_ms to ~500ms (just past very_late=450ms delay) would expose a timing gradient.
 - `KinematicReacher.simulate_change_of_mind` does not model velocity continuity at the phase boundary (phase 2 starts fresh from rest at `switch_time_ms`). This simplification suffices for the Phase 8 abstract model.
+
+---
+
+## 25. Phase 9 module map and findings
+
+### 25.1 Source layout additions
+
+```
+src/nrp_bga_sb/
+    perturbation_sweep.py   — PerturbationType, PerturbationSweepResult,
+                               LATENCY_LEVELS_MS, JITTER_STD_LEVELS_MS,
+                               DROPOUT_LEVELS, PHASE_OFFSET_FRACTIONS,
+                               FREQUENCIES_HZ, N_GONOGO_SEEDS,
+                               N_GONOGO_TRIALS_PER_SEED, N_SS_SEEDS,
+                               N_SS_TRIALS_PER_SEED, _phase_offset_ms,
+                               _make_wrapped_policy, run_gonogo_perturbation_condition,
+                               run_stopsignal_perturbation_condition,
+                               format_decomposition_report (Tasks 9.1 + 9.2)
+
+experiments/
+    perturbation_sweep.py   — full 170-condition sweep runner; saves
+                               perturbation_sweep_gonogo.json,
+                               perturbation_sweep_stopsignal.json,
+                               perturbation_sweep_report.txt (Task 9.2)
+
+tests/
+    test_perturbation_sweep.py — 42 tests: constants, phase-offset helper,
+                                  wrapper factory, go/no-go and stop-signal
+                                  condition runners, report formatter (Tasks 9.1–9.2)
+
+results/                  — generated output (git-ignored)
+    perturbation_sweep_gonogo.json
+    perturbation_sweep_stopsignal.json
+    perturbation_sweep_report.txt
+```
+
+### 25.2 Sweep design
+
+Perturbation types and levels:
+
+| Type | Levels | Unit |
+|---|---|---|
+| `latency` | 0, 10, 25, 50, 100 | ms |
+| `jitter` | 0, 5, 10, 25 | ms std dev |
+| `dropout` | 0, 1, 5, 10 | % probability |
+| `phase_offset` | 0, 25, 50, 75 | % of BG update period |
+
+Cross-product: 4 types × (4 or 5 levels) × 5 frequencies × 2 paradigms = 170 condition runs.
+Each condition: N_GONOGO_SEEDS=5 × N_GONOGO_TRIALS_PER_SEED=50 = 250 go/no-go trials;
+N_SS_SEEDS=5 × N_SS_TRIALS_PER_SEED=100 = 500 stop-signal trials.
+
+Phase offset in ms: `fraction × (1000 / frequency_hz)`. At 10 Hz, 25 % = 25 ms; at 80 Hz, 25 % = 3.125 ms.
+
+### 25.3 PerturbationSweepResult design
+
+Single result type covering both paradigms with optional fields:
+- Go/no-go fields: `go_success_rate`, `false_alarm_rate`, `bg_commitment_latency_mean` (seconds)
+- Stop-signal fields: `stop_failure_rate`, `ssrt_estimate_s`, `go_rt_mean_s`, `inhibition_function_monotone`
+- Shared fields: `frequency_hz`, `perturbation_type`, `perturbation_value`, `perturbation_label`, `paradigm`, `n_trials`, `n_seeds`
+
+### 25.4 Wrapper integration
+
+The four wrappers from Phase 3 (`perturbations.py`) wrap `ClosedLoopPolicy` as the base policy:
+- `LatencyWrapper` / `JitterWrapper` / `PhaseOffsetWrapper`: modify `selection_latency` on returned `BGDecision` — affects RT proxy (`movement_onset_time`) but NOT `selected_channel`.
+- `DropoutWrapper`: returns `_last_decision` (previous trial's `BGDecision`) with configured probability — this CAN change `selected_channel` and affect trial outcomes.
+
+A fresh policy instance is created per seed so `DropoutWrapper` inter-call state resets between seeds.
+
+### 25.5 Key finding: frequency vs. timing decomposition
+
+- **go_success_rate** and **stop_failure_rate** are determined by `selected_channel`. Latency, jitter, and phase-offset wrappers do not change `selected_channel`, so these behavioural rates are purely frequency-driven.
+- **selection_latency** (RT proxy) is increased by latency, jitter, and phase-offset wrappers, making it a timing-precision signature distinct from the frequency-driven selection signature.
+- **Dropout** is the only perturbation that can alter `selected_channel` (by replaying a stale decision from a prior trial), changing go_success_rate and stop_failure_rate in a trial-history-dependent way.
+- §11 interpretation: latency/jitter effects → urgency/commitment account (RT shifts, choices preserved); dropout → cancellation-bottleneck proxy (stop failures increase with replayed go decisions).
+
+### 25.6 M10 acceptance
+
+- Decomposition report produced for go/no-go and stop-signal: ✓
+- §11 interpretation guide embedded in report header: ✓
+- All four perturbation types swept across all five frequencies: ✓
+- 674 tests passing (42 new in Phase 9); ruff clean.
+
+### 25.7 Known constraints
+
+- `bg_commitment_latency_mean` in PerturbationSweepResult is set from `thalamic_relay_time - cue_onset_time` inside ClosedLoopPolicy (before the perturbation wrapper sees the result). It does not reflect the latency/jitter/phase-offset added by the wrapper — the wrapper's effect appears only in `selection_latency` (and hence `movement_onset_time`).
+- Phase-offset is modelled as additive latency (same as Phase 3's `PhaseOffsetWrapper`). True nrp-core phase-offset (engine timestep starting offset) remains unverified (see §15.4 and §19.6).
+- Dropout wraps per-trial decisions across a seed's trial sequence. The inter-call `_last_decision` state is reset at seed boundaries (fresh policy per seed). Within a seed, stale decisions accumulate as intended.
