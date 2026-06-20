@@ -453,3 +453,143 @@ def test_format_decomposition_report_returns_string():
     report = format_decomposition_report([r], [])
     assert isinstance(report, str)
     assert len(report) > 0
+
+
+# =============================================================================
+# Report formatter — Task 9.2 additions
+# =============================================================================
+
+
+def _make_gonogo_result(
+    frequency_hz: float = 20.0,
+    perturbation_type: str = "latency",
+    perturbation_value: float = 0.0,
+) -> PerturbationSweepResult:
+    """Helper: run a minimal go/no-go condition for report tests."""
+    return run_gonogo_perturbation_condition(
+        frequency_hz=frequency_hz,
+        perturbation_type=perturbation_type,  # type: ignore[arg-type]
+        perturbation_value=perturbation_value,
+        n_trials_per_seed=5,
+        n_seeds=2,
+    )
+
+
+def _make_stopsignal_result(
+    frequency_hz: float = 20.0,
+    perturbation_type: str = "latency",
+    perturbation_value: float = 0.0,
+) -> PerturbationSweepResult:
+    """Helper: run a minimal stop-signal condition for report tests."""
+    return run_stopsignal_perturbation_condition(
+        frequency_hz=frequency_hz,
+        perturbation_type=perturbation_type,  # type: ignore[arg-type]
+        perturbation_value=perturbation_value,
+        n_trials_per_seed=5,
+        n_seeds=2,
+    )
+
+
+def test_format_report_has_section_per_perturbation_type():
+    """Report must include all four perturbation-type section headers."""
+    gonogo_results = [
+        _make_gonogo_result(perturbation_type=pt)
+        for pt in ["latency", "jitter", "dropout", "phase_offset"]
+    ]
+    report = format_decomposition_report(gonogo_results, [])
+    assert "latency" in report
+    assert "jitter" in report
+    assert "dropout" in report
+    assert "phase_offset" in report
+
+
+def test_format_report_gonogo_section_present():
+    """Report must contain 'Go/No-Go' when go/no-go results are provided."""
+    r = _make_gonogo_result()
+    report = format_decomposition_report([r], [])
+    assert "Go/No-Go" in report
+
+
+def test_format_report_stop_signal_section_present():
+    """Report must contain 'Stop-Signal' when stop-signal results are provided."""
+    r = _make_stopsignal_result()
+    report = format_decomposition_report([], [r])
+    assert "Stop-Signal" in report
+
+
+def test_format_report_interpretation_guide_present():
+    """Report must contain the 'INTERPRETATION GUIDE' section."""
+    r = _make_gonogo_result()
+    report = format_decomposition_report([r], [])
+    assert "INTERPRETATION GUIDE" in report
+
+
+def test_format_report_na_for_none_values():
+    """A stop-signal result with None stop_failure_rate must render as 'N/A'."""
+    # Construct a synthetic result with stop_failure_rate=None to test the
+    # N/A rendering branch in the formatter without running a real condition.
+    synthetic = PerturbationSweepResult(
+        frequency_hz=20.0,
+        perturbation_type="latency",
+        perturbation_value=0.0,
+        perturbation_label="latency=0ms",
+        paradigm="stop_signal",
+        n_trials=10,
+        n_seeds=2,
+        stop_failure_rate=None,
+        ssrt_estimate_s=None,
+        go_rt_mean_s=None,
+        inhibition_function_monotone=None,
+    )
+    report = format_decomposition_report([], [synthetic])
+    assert "N/A" in report
+
+
+def test_format_report_frequency_appears_in_table():
+    """A 20 Hz result must produce a line containing '20' in the report."""
+    r = _make_gonogo_result(frequency_hz=20.0)
+    report = format_decomposition_report([r], [])
+    assert "20" in report
+
+
+def test_format_report_sorted_by_frequency():
+    """Within a section, lower frequency rows must appear before higher frequency rows."""
+    r5 = _make_gonogo_result(frequency_hz=5.0)
+    r40 = _make_gonogo_result(frequency_hz=40.0)
+    # Pass in reversed order to verify the formatter sorts, not just preserves input order.
+    report = format_decomposition_report([r40, r5], [])
+    pos_5 = report.find("5.0")
+    pos_40 = report.find("40.0")
+    assert pos_5 != -1 and pos_40 != -1, "Both frequencies must appear in the report"
+    assert pos_5 < pos_40, "5 Hz row must appear before 40 Hz row in the sorted table"
+
+
+def test_perturbation_levels_dict_keys():
+    """Each of the 4 perturbation types must be accepted by both condition runners."""
+    perturbation_types_and_values = [
+        ("latency", 0.0),
+        ("jitter", 0.0),
+        ("dropout", 0.0),
+        ("phase_offset", 0.0),
+    ]
+    for ptype, pval in perturbation_types_and_values:
+        # Trigger: verify that the library accepts all four type strings.
+        # Why: the experiment runner iterates over PERTURBATION_LEVELS.keys() —
+        #      a mismatch would silently skip or error at runtime.
+        # Outcome: if any type raises, the test fails fast with a clear message.
+        result_gng = run_gonogo_perturbation_condition(
+            frequency_hz=20.0,
+            perturbation_type=ptype,  # type: ignore[arg-type]
+            perturbation_value=pval,
+            n_trials_per_seed=5,
+            n_seeds=2,
+        )
+        assert result_gng.perturbation_type == ptype
+        result_ss = run_stopsignal_perturbation_condition(
+            frequency_hz=20.0,
+            perturbation_type=ptype,  # type: ignore[arg-type]
+            perturbation_value=pval,
+            n_trials_per_seed=5,
+            n_seeds=2,
+        )
+        assert result_ss.perturbation_type == ptype
