@@ -118,6 +118,6 @@ def test_format_sweep_report_sorted_by_frequency():
     r5 = run_stop_signal_condition(5.0, n_trials_per_seed=5, n_seeds=1)
     r80 = run_stop_signal_condition(80.0, n_trials_per_seed=5, n_seeds=1)
     report = format_sweep_report([r80, r5])  # deliberately out of order
-    idx_5 = report.index("5")
-    idx_80 = report.index("80")
+    idx_5 = report.index("5 Hz")
+    idx_80 = report.index("80 Hz")
     assert idx_5 < idx_80, "5 Hz entry should appear before 80 Hz entry in the report"
