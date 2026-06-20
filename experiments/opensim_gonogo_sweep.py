@@ -51,7 +51,8 @@ def run_opensim_gonogo_condition(freq_hz: float, n_trials: int,
         return (trial.movement_onset_time * 1000.0
                 if trial.movement_onset_time is not None else None)
 
-    specs = [extract_reach_spec(t.motor_command_series, onset_ms_of(t), str(t.trial_id))
+    specs = [extract_reach_spec(t.motor_command_series, onset_ms_of(t), str(t.trial_id),
+                                n_channels=len(client.config.q_target))
              for t in trials]
     trajs, target_endpoints_xy = client.run(specs)
     traj_by_id = {ot.trial_id: ot for ot in trajs}

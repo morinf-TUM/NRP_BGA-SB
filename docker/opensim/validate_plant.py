@@ -1,5 +1,5 @@
 """Independent Arm26 plant validation (Task 10.2). Runs canonical full reaches and
-checks smoothness, duration, bounded endpoint error, torque sanity, determinism.
+checks smoothness, duration, bounded endpoint error, and determinism.
 
 Usage: python validate_plant.py --config config.json --out report.json
 """

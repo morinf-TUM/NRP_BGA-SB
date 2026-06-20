@@ -53,6 +53,12 @@ def test_extract_reach_spec_open_but_all_zero_raises():
         extract_reach_spec(cmds, onset_time_ms=700.0, trial_id="t5")
 
 
+def test_extract_reach_spec_wrong_channel_count_raises():
+    cmds = [_cmd([0.0, 0.5, 0.5], "open", 0.5)]   # 3 channels
+    with pytest.raises(ValueError, match="channels"):
+        extract_reach_spec(cmds, onset_time_ms=700.0, trial_id="t", n_channels=2)
+
+
 FIXTURE = Path(__file__).parent / "opensim" / "fixtures" / "trajectories_ok.json"
 
 

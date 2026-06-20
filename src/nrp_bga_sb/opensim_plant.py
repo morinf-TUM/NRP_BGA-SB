@@ -59,6 +59,7 @@ def extract_reach_spec(
     motor_commands: list[MotorCommand],
     onset_time_ms: float | None,
     trial_id: str,
+    n_channels: int | None = None,
 ) -> ReachSpec:
     """Reduce a motor_command_series to the OpenSim plant's input.
 
@@ -73,6 +74,14 @@ def extract_reach_spec(
     if last.gate_state == "closed":
         return ReachSpec(trial_id=trial_id, selected_channel=-1,
                          onset_time_ms=None, gate_gain=0.0, gate_state="closed")
+    # Trigger: caller knows the expected channel count (e.g. from OpenSimPlantConfig.q_target).
+    # Why: a mismatched command length produces a silent wrong argmax; fail fast at the host
+    #      boundary so the error is never shipped inside the Docker container.
+    # Outcome: ValueError before argmax when n_channels is provided and length mismatches.
+    if n_channels is not None and len(last.command) != n_channels:
+        raise ValueError(
+            f"command has {len(last.command)} channels but n_channels={n_channels}"
+        )
     ch = int(np.argmax(last.command))
     if last.command[ch] == 0.0:
         # Trigger: open/partial gate but all-zero command.
