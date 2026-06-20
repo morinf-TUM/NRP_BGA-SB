@@ -101,7 +101,9 @@ class OpenSimPlantClient:
     def __init__(self, config: OpenSimPlantConfig, io_dir: str | Path,
                  runner: Callable[[list[str]], int] | None = None) -> None:
         self.config = config
-        self.io_dir = Path(io_dir)
+        # docker run -v rejects relative bind-mount sources; resolve to absolute so a
+        # relative --io-dir (e.g. data/opensim_io) still produces a valid mount.
+        self.io_dir = Path(io_dir).resolve()
         self.io_dir.mkdir(parents=True, exist_ok=True)
         self.runner = runner or self._docker_runner
 
