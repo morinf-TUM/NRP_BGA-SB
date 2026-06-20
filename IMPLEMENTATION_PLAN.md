@@ -183,6 +183,22 @@ Tasks:
 
 **Acceptance (M9):** cerebellar module improves movement accuracy or correction timing without erasing BG-frequency effects.
 
+Phase 11 is scoped to the host-side kinematic reacher (fast, CI-testable) per the validation ladder; see `docs/superpowers/specs/2026-06-20-phase11-cerebellar-correction-design.md`. The embodied confirmation is deferred to Phase 11b below.
+
+---
+
+## Phase 11b — OpenSim cerebellar confirmation (Milestone M9, embodied)
+
+**Goal:** Confirm the Phase 11 cerebellar correction result survives full musculoskeletal embodiment, mirroring the Phase 6 → Phase 10 kinematic → OpenSim validation step.
+
+Tasks:
+
+- **11b.1** Drive the Dockerized OpenSim Arm26 plant (Phase 10, `nrp-bga-opensim:4.6`) with the same visuomotor-rotation perturbation and cerebellar corrector validated kinematically in Phase 11.
+- **11b.2** Re-run the cerebellum on/off comparison through the OpenSim plant on the SAME BG decisions (reuse the `opensim_gonogo_sweep.py` side-by-side harness).
+- **11b.3** Confirm: endpoint accuracy improves under perturbation in the embodied plant, and the BG-frequency onset signature still survives.
+
+**Acceptance (M9 embodied):** cerebellar accuracy improvement and preserved BG-frequency effect both reproduce in OpenSim. Docker-gated (`@pytest.mark.opensim`), consistent with Phase 10 test conventions.
+
 ---
 
 ## Phase 12 — Minimum publishable prototype writeup

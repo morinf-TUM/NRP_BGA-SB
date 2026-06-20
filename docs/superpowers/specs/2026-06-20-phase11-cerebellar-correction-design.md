@@ -220,7 +220,9 @@ Target ≈ 30+ new tests; the full suite stays green (baseline 685) and ruff cle
 
 ## 9. Out of scope (YAGNI)
 
-- OpenSim embodiment of the cerebellum (deferred; optional later sub-phase or Phase 12 writeup).
+- OpenSim embodiment of the cerebellum — **explicitly deferred to Phase 11b** (IMPLEMENTATION_PLAN.md),
+  which re-runs this perturbation + corrector through the Dockerized Arm26 plant on the same BG
+  decisions, mirroring the Phase 6 → Phase 10 kinematic → OpenSim step. Not optional; scheduled.
 - Two-rate / multi-state adaptation dynamics (savings, interference).
 - Adapting to perturbation *types* other than visuomotor rotation (gain, bias) — the interfaces
   should not preclude it, but only rotation is built and tested in Phase 11.
