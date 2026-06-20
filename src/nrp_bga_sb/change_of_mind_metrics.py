@@ -162,6 +162,8 @@ def compute_change_of_mind_metrics(trials: list[TrialLog]) -> ChangeOfMindMetric
             for t in switch_trials
             if t.failure_mode != "miss"
             for rl in (revision_latency_ms(t),)
+            # Guard is dead for switch trials (raises or returns float), but kept for safety
+            # against future engine changes that might introduce a None-returning code path.
             if rl is not None
         ]
         mean_latency = (sum(latencies) / len(latencies)) if latencies else None
@@ -197,6 +199,8 @@ def compute_change_of_mind_metrics(trials: list[TrialLog]) -> ChangeOfMindMetric
         # Accumulate revision latency for responding trials (not miss).
         if t.failure_mode != "miss":
             rl = revision_latency_ms(t)
+            # Guard is dead for switch trials (raises or returns float), but kept for safety
+            # against future engine changes that might introduce a None-returning code path.
             if rl is not None:
                 cat_latencies[cat].append(rl)
 
