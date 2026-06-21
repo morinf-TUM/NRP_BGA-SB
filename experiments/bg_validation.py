@@ -99,10 +99,22 @@ if __name__ == "__main__":
         )
     print()
     # Monotone check: latency at low < medium (high is suppressed → no latency value)
-    low_lat  = next(r["mean_selection_latency_ms"] for r in results if r["conflict_level"] == "low")
-    med_lat  = next(r["mean_selection_latency_ms"] for r in results if r["conflict_level"] == "medium")
-    high_sel = next(r["n_selections"]              for r in results if r["conflict_level"] == "high")
-    print(f"M2 monotone check: low_lat={low_lat:.1f}ms < med_lat={med_lat:.1f}ms → "
-          f"{'PASS' if low_lat < med_lat else 'FAIL'}")
+    low_lat = next(
+        r["mean_selection_latency_ms"]
+        for r in results
+        if r["conflict_level"] == "low"
+    )
+    med_lat = next(
+        r["mean_selection_latency_ms"]
+        for r in results
+        if r["conflict_level"] == "medium"
+    )
+    high_sel = next(
+        r["n_selections"] for r in results if r["conflict_level"] == "high"
+    )
+    monotone_status = "PASS" if low_lat < med_lat else "FAIL"
+    print(f"M2 monotone check: low_lat={low_lat:.1f}ms < "
+          f"med_lat={med_lat:.1f}ms → {monotone_status}")
+    suppression_status = "PASS" if high_sel == 0 else "FAIL"
     print(f"M2 suppression check: high_conflict n_selections={high_sel} → "
-          f"{'PASS' if high_sel == 0 else 'FAIL'}")
+          f"{suppression_status}")
