@@ -11,7 +11,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
 import numpy as np
 
 from visuals.style import (
@@ -337,11 +337,7 @@ def write_perturbation_frames(
                 ax.plot(vals[:n], ch[:n], "s--", color="#f59e0b", linewidth=2)
 
             if ci in label_cells:
-                v_color = VERDICT_COLORS.get(
-                    "not_supported" if verdict == "urgency account" else "supported",
-                    "#ffffff",
-                )
-                # Override: both urgency and cancellation are "supported"
+                # Both urgency and cancellation accounts are "supported" per §11
                 v_color = "#22c55e"
                 ax.text(0.97, 0.97, verdict, color=v_color, fontsize=9,
                         fontweight="bold", transform=ax.transAxes,
