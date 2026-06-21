@@ -1,0 +1,26 @@
+[
+  {
+    "conflict_level": "low",
+    "salience_gap": 0.7,
+    "n_seeds": 5,
+    "n_selections": 5,
+    "selection_accuracy": 1.0,
+    "mean_selection_latency_ms": 13.0
+  },
+  {
+    "conflict_level": "medium",
+    "salience_gap": 0.3,
+    "n_seeds": 5,
+    "n_selections": 5,
+    "selection_accuracy": 1.0,
+    "mean_selection_latency_ms": 26.3
+  },
+  {
+    "conflict_level": "high",
+    "salience_gap": 0.1,
+    "n_seeds": 5,
+    "n_selections": 0,
+    "selection_accuracy": 0.0,
+    "mean_selection_latency_ms": null
+  }
+]
