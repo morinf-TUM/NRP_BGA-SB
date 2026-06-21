@@ -21,6 +21,14 @@ This file is the primary source of truth for project context. It is derived from
 - **Phase 10 complete (2026-06-20).** OpenSim Arm26 musculoskeletal embodiment (M8). Containerised OpenSim 4.6 plant (`nrp-bga-opensim:4.6`) runs the Arm26 model via a file-based batch boundary; host `opensim_plant.py` ships reduced `ReachSpec`s to the container and scores returned hand trajectories with `compute_movement_metrics`. `experiments/opensim_gonogo_sweep.py` runs the closed-loop go/no-go pipeline at five BG frequencies through both the OpenSim plant and the kinematic reacher on the SAME BG decisions. M8 result: the BG-frequency effect survives full musculoskeletal embodiment — OpenSim movement-onset rate is 0.000 at 5 Hz and 1.000 at ≥10 Hz, identical to the kinematic reacher. 685 tests passing (1 new host dry-run + 1 Docker-gated smoke deselected without an image), ruff clean. See §26 for module map.
 - **Phase 11 complete (2026-06-20).** Cerebellar trajectory correction (M9). `perturbation_plant.py` (`VisuomotorRotation` + 2D geometry helpers `rotate_xy`, `signed_angle`), `cerebellum.py` (`AdaptiveFilter` LMS trial-by-trial adaptation, `ForwardModelController` within-trial online feedback, `Cerebellum` composition with independent enable flags), `KinematicReacher.simulate_with_correction` (invoked only on executed movements — the BG-effect guard), and `cerebellum_sweep.py` (`CerebellumSweepResult`, `run_cerebellum_condition`, `FREQUENCIES_HZ`). Key result: under a 30° visuomotor rotation the cerebellum reduces mean endpoint deviation to 0.0 at every frequency that moves (θ̂ → 0.4730 rad across trials), while movement-onset-rate-vs-frequency is bit-identical with the cerebellum on or off (0.000 at 5 Hz, 1.000 at ≥10 Hz) — the BG-frequency selection signature survives. 723 tests passing, 2 deselected (Docker-gated opensim), ruff clean. See §27 for module map.
 - **Phase 11b complete (2026-06-21).** OpenSim cerebellar correction confirmation (M9, embodied). `experiments/opensim_cerebellum_sweep.py` re-runs the cerebellum on/off comparison through the OpenSim Arm26 plant (`nrp-bga-opensim:4.6`) on the SAME BG decisions used in Phase 11. Perturbation (VisuomotorRotation) and cerebellar counter-rotation (AdaptiveFilter) are applied host-side in Cartesian endpoint space post-hoc on the trajectory returned by the container; the OpenSim plant is unaware of the rotation. BG-effect guard: closed-gate trials never update the filter (same invariant as §27.4). M9 embodied acceptance: cerebellar adaptation reduces endpoint deviation under a 30° visuomotor rotation while the BG-frequency onset signature is preserved. 728 tests passing, 3 deselected (Docker-gated opensim, including new cerebellum e2e smoke), ruff clean. See §28 for module map.
+- **Phase 12 complete (2026-06-21).** Minimum publishable prototype packaged.
+  `experiments/bg_validation.py` validates M2 BG-alone criterion (13.0 ms latency
+  at low conflict, monotone, correct channel).  All experiment result JSONs committed
+  to `results/`.  `experiments/generate_report.py` synthesises all results into
+  `docs/prototype_report.md`, covering §14 requirements: BG validation, reaching
+  plant (kinematic + OpenSim), go/no-go frequency sweep, stop-signal sweep,
+  latency/jitter/dropout decomposition, and three-interpretation comparison.  Host
+  test suite: 732 tests, ruff clean.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
 
 ### Language and build (Task 0.1, 2026-06-19)
@@ -1294,3 +1302,41 @@ Same invariant as §27.4. `ot.onset_time_ms is None or ot.selected_channel < 0` 
 - **No within-trial online feedback for OpenSim**: the `ForwardModelController` cannot inject per-step corrective signals into the container's PD simulation. Only the trial-by-trial `AdaptiveFilter` layer is active; the net correction is a post-hoc counter-rotation of the returned endpoint. Accuracy improvement therefore depends entirely on LMS convergence across trials (same mechanism as §27.5, same convergence rate).
 - **`target_endpoints_xy` reference (no gate_gain scaling)**: the FK targets returned by the container represent the full-reach joint targets. Gate_gain scales the reach extent in the kinematic plant but is implicit in the OpenSim PD trajectory; applying it to the reference would introduce a spurious offset. Phase 10 convention is preserved.
 - **Docker-gated smoke only**: the embodied M9 acceptance numbers require the `nrp-bga-opensim:4.6` image. The host dry-run tests exercise the full adaptation logic with a fake runner echoing plausible trajectories; the BG-guard and LMS convergence are validated without Docker.
+
+## 29. Phase 12 module map (complete as of 2026-06-21)
+
+Minimum publishable prototype packaging. No new library modules; one new experiment
+script and one report generator.
+
+### 29.1 Source layout
+
+```
+experiments/
+  bg_validation.py          — Phase 2 BG-alone channel validation runner
+  generate_report.py        — reads all result JSONs, writes prototype_report.md
+
+results/
+  bg_validation.json        — 3 conditions × {n_selections, accuracy, latency}
+  frequency_sweep_results.json       — 900 conditions (Phase 5 go/no-go + two-choice)
+  stop_signal_sweep_results.json     — 5 frequencies (Phase 7)
+  perturbation_sweep_gonogo.json     — 85 conditions (Phase 9 go/no-go)
+  perturbation_sweep_stopsignal.json — 85 conditions (Phase 9 stop-signal)
+  change_of_mind_sweep.json          — 5 frequencies (Phase 8)
+  (previously committed: opensim_gonogo_sweep.json, opensim_plant_validation.json)
+  (newly committed: ablation_frequency_v2.json, cerebellum_results.json,
+                    kinematic_sweep_results.json)
+
+docs/
+  prototype_report.md       — complete §14 prototype report with actual numbers
+```
+
+### 29.2 §14 coverage
+
+| Requirement (§14) | Source data | Status |
+|---|---|---|
+| BG-alone channel validation | `bg_validation.json` | ✓ |
+| Reaching plant validation (kinematic + OpenSim) | `kinematic_sweep_results.json`, `opensim_gonogo_sweep.json` | ✓ |
+| Go/no-go frequency sweep | `frequency_sweep_results.json`, `ablation_frequency_v2.json` | ✓ |
+| Stop-signal sweep (Verbruggen-compliant) | `stop_signal_sweep_results.json` | ✓ |
+| Latency/jitter decomposition | `perturbation_sweep_gonogo.json`, `perturbation_sweep_stopsignal.json` | ✓ |
+| Three-interpretation comparison | synthesised across all sweeps | ✓ |
