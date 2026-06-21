@@ -27,3 +27,6 @@ notebooks/*.html
 
 # NRP / nrp-core artefacts
 *.nrp_env
+
+# Generated visual outputs
+visuals/output/
