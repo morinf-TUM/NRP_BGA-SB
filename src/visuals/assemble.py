@@ -14,7 +14,11 @@ def _ffmpeg_encode_args(
 ) -> list[str]:
     """Build the ffmpeg argument list for encoding a frame sequence."""
     fade_out_start = max(0, n_frames - fade_frames)
-    vf = f"fade=in:0:{fade_frames},fade=out:{fade_out_start}:{fade_frames}"
+    # H.264 requires even dimensions; trunc(iw/2)*2 rounds down to nearest even pixel.
+    vf = (
+        f"scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+        f"fade=in:0:{fade_frames},fade=out:{fade_out_start}:{fade_frames}"
+    )
     return [
         "ffmpeg", "-y",
         "-framerate", str(fps),

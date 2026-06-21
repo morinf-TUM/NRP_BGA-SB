@@ -303,7 +303,7 @@ def write_perturbation_frames(
                 if r["perturbation_type"] == ptype and r["frequency_hz"] == 40.0]
         rows.sort(key=lambda r: r["perturbation_value"])
         vals = [r["perturbation_value"] for r in rows]
-        rts  = [r["bg_commitment_latency_mean"] for r in rows]
+        rts  = [r["bg_commitment_latency_mean"] or 0.0 for r in rows]
         rt0  = rts[0] if rts[0] > 0 else 1e-6
         rts_norm = [v / rt0 for v in rts]
         ch = [r.get(channel_key, 0.0) or 0.0 for r in rows]
@@ -425,8 +425,8 @@ def write_interpretations_frames(
         for cx, h in zip(col_x, headers):
             ax.text(cx, 0.80, h, color=_FG, fontsize=14, fontweight="bold",
                     transform=ax.transAxes, va="bottom")
-        ax.axhline(0.78, xmin=0.01, xmax=0.99, color="#30363d", linewidth=1,
-                   transform=ax.transAxes)
+        ax.plot([0.01, 0.99], [0.78, 0.78], color="#30363d", linewidth=1,
+                transform=ax.transAxes)
 
         row_h = 0.18
         for ri, (account, pred, obs, verdict, sym) in enumerate(_INTERP_ROWS):
