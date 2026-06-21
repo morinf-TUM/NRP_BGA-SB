@@ -1,0 +1,205 @@
+================================================================
+Phase 9 — Latency/Jitter/Dropout/Phase Decomposition Report (M10)
+================================================================
+
+INTERPRETATION GUIDE (§11):
+  - Frequency drives wrong-choice / miss rate     → selector-bottleneck
+  - Frequency shifts RT, choices preserved        → urgency/commitment account
+  - Dropout increases false alarms / stop failures → cancellation-bottleneck
+  - Latency/jitter shift RT only, choices intact  → timing-precision effect
+
+--- Go/No-Go: latency sweep ---
+    Freq  | Pert Level         | go_success% | false_alarm% | commit_lat_ms
+     5.0  | latency=0ms        |       0.000 |        0.000 |         0.000
+     5.0  | latency=10ms       |       0.000 |        0.000 |         0.000
+     5.0  | latency=25ms       |       0.000 |        0.000 |         0.000
+     5.0  | latency=50ms       |       0.000 |        0.000 |         0.000
+     5.0  | latency=100ms      |       0.000 |        0.000 |         0.000
+    10.0  | latency=0ms        |     100.000 |        0.000 |       100.000
+    10.0  | latency=10ms       |     100.000 |        0.000 |       100.000
+    10.0  | latency=25ms       |     100.000 |        0.000 |       100.000
+    10.0  | latency=50ms       |     100.000 |        0.000 |       100.000
+    10.0  | latency=100ms      |     100.000 |        0.000 |       100.000
+    20.0  | latency=0ms        |     100.000 |        0.000 |       150.000
+    20.0  | latency=10ms       |     100.000 |        0.000 |       150.000
+    20.0  | latency=25ms       |     100.000 |        0.000 |       150.000
+    20.0  | latency=50ms       |     100.000 |        0.000 |       150.000
+    20.0  | latency=100ms      |     100.000 |        0.000 |       150.000
+    40.0  | latency=0ms        |     100.000 |        0.000 |       175.000
+    40.0  | latency=10ms       |     100.000 |        0.000 |       175.000
+    40.0  | latency=25ms       |     100.000 |        0.000 |       175.000
+    40.0  | latency=50ms       |     100.000 |        0.000 |       175.000
+    40.0  | latency=100ms      |     100.000 |        0.000 |       175.000
+    80.0  | latency=0ms        |     100.000 |        0.000 |       192.000
+    80.0  | latency=10ms       |     100.000 |        0.000 |       192.000
+    80.0  | latency=25ms       |     100.000 |        0.000 |       192.000
+    80.0  | latency=50ms       |     100.000 |        0.000 |       192.000
+    80.0  | latency=100ms      |     100.000 |        0.000 |       192.000
+
+--- Stop-Signal: latency sweep ---
+    Freq  | Pert Level         | stop_fail% |   SSRT_s | inh_mono
+     5.0  | latency=0ms        |      0.000 |      N/A |     True
+     5.0  | latency=10ms       |      0.000 |      N/A |     True
+     5.0  | latency=25ms       |      0.000 |      N/A |     True
+     5.0  | latency=50ms       |      0.000 |      N/A |     True
+     5.0  | latency=100ms      |      0.000 |      N/A |     True
+    10.0  | latency=0ms        |      0.000 |   -0.402 |     True
+    10.0  | latency=10ms       |      0.000 |   -0.392 |     True
+    10.0  | latency=25ms       |      0.000 |   -0.377 |     True
+    10.0  | latency=50ms       |      0.000 |   -0.352 |     True
+    10.0  | latency=100ms      |      0.000 |   -0.302 |     True
+    20.0  | latency=0ms        |      0.000 |   -0.409 |     True
+    20.0  | latency=10ms       |      0.000 |   -0.399 |     True
+    20.0  | latency=25ms       |      0.000 |   -0.384 |     True
+    20.0  | latency=50ms       |      0.000 |   -0.359 |     True
+    20.0  | latency=100ms      |      0.000 |   -0.309 |     True
+    40.0  | latency=0ms        |      0.000 |   -0.410 |     True
+    40.0  | latency=10ms       |      0.000 |   -0.400 |     True
+    40.0  | latency=25ms       |      0.000 |   -0.385 |     True
+    40.0  | latency=50ms       |      0.000 |   -0.360 |     True
+    40.0  | latency=100ms      |      0.000 |   -0.310 |     True
+    80.0  | latency=0ms        |      0.000 |   -0.410 |     True
+    80.0  | latency=10ms       |      0.000 |   -0.400 |     True
+    80.0  | latency=25ms       |      0.000 |   -0.385 |     True
+    80.0  | latency=50ms       |      0.000 |   -0.360 |     True
+    80.0  | latency=100ms      |      0.000 |   -0.310 |     True
+
+--- Go/No-Go: jitter sweep ---
+    Freq  | Pert Level         | go_success% | false_alarm% | commit_lat_ms
+     5.0  | jitter_std=0ms     |       0.000 |        0.000 |         0.000
+     5.0  | jitter_std=5ms     |       0.000 |        0.000 |         0.000
+     5.0  | jitter_std=10ms    |       0.000 |        0.000 |         0.000
+     5.0  | jitter_std=25ms    |       0.000 |        0.000 |         0.000
+    10.0  | jitter_std=0ms     |     100.000 |        0.000 |       100.000
+    10.0  | jitter_std=5ms     |     100.000 |        0.000 |       100.000
+    10.0  | jitter_std=10ms    |     100.000 |        0.000 |       100.000
+    10.0  | jitter_std=25ms    |     100.000 |        0.000 |       100.000
+    20.0  | jitter_std=0ms     |     100.000 |        0.000 |       150.000
+    20.0  | jitter_std=5ms     |     100.000 |        0.000 |       150.000
+    20.0  | jitter_std=10ms    |     100.000 |        0.000 |       150.000
+    20.0  | jitter_std=25ms    |     100.000 |        0.000 |       150.000
+    40.0  | jitter_std=0ms     |     100.000 |        0.000 |       175.000
+    40.0  | jitter_std=5ms     |     100.000 |        0.000 |       175.000
+    40.0  | jitter_std=10ms    |     100.000 |        0.000 |       175.000
+    40.0  | jitter_std=25ms    |     100.000 |        0.000 |       175.000
+    80.0  | jitter_std=0ms     |     100.000 |        0.000 |       192.000
+    80.0  | jitter_std=5ms     |     100.000 |        0.000 |       192.000
+    80.0  | jitter_std=10ms    |     100.000 |        0.000 |       192.000
+    80.0  | jitter_std=25ms    |     100.000 |        0.000 |       192.000
+
+--- Stop-Signal: jitter sweep ---
+    Freq  | Pert Level         | stop_fail% |   SSRT_s | inh_mono
+     5.0  | jitter_std=0ms     |      0.000 |      N/A |     True
+     5.0  | jitter_std=5ms     |      0.000 |      N/A |     True
+     5.0  | jitter_std=10ms    |      0.000 |      N/A |     True
+     5.0  | jitter_std=25ms    |      0.000 |      N/A |     True
+    10.0  | jitter_std=0ms     |      0.000 |   -0.402 |     True
+    10.0  | jitter_std=5ms     |      0.000 |   -0.402 |     True
+    10.0  | jitter_std=10ms    |      0.000 |   -0.388 |     True
+    10.0  | jitter_std=25ms    |      0.000 |   -0.294 |     True
+    20.0  | jitter_std=0ms     |      0.000 |   -0.409 |     True
+    20.0  | jitter_std=5ms     |      0.000 |   -0.408 |     True
+    20.0  | jitter_std=10ms    |      0.000 |   -0.366 |     True
+    20.0  | jitter_std=25ms    |      0.000 |   -0.246 |     True
+    40.0  | jitter_std=0ms     |      0.000 |   -0.410 |     True
+    40.0  | jitter_std=5ms     |      0.000 |   -0.407 |     True
+    40.0  | jitter_std=10ms    |      0.000 |   -0.347 |     True
+    40.0  | jitter_std=25ms    |      0.000 |   -0.239 |     True
+    80.0  | jitter_std=0ms     |      0.000 |   -0.410 |     True
+    80.0  | jitter_std=5ms     |      0.000 |   -0.407 |     True
+    80.0  | jitter_std=10ms    |      0.000 |   -0.347 |     True
+    80.0  | jitter_std=25ms    |      0.000 |   -0.239 |     True
+
+--- Go/No-Go: dropout sweep ---
+    Freq  | Pert Level         | go_success% | false_alarm% | commit_lat_ms
+     5.0  | dropout=0%         |       0.000 |        0.000 |         0.000
+     5.0  | dropout=1%         |       0.000 |        0.000 |         0.000
+     5.0  | dropout=5%         |       0.000 |        0.000 |         0.000
+     5.0  | dropout=10%        |       0.000 |        0.000 |         0.000
+    10.0  | dropout=0%         |     100.000 |        0.000 |       100.000
+    10.0  | dropout=1%         |     100.000 |        0.000 |       100.000
+    10.0  | dropout=5%         |      98.286 |        1.333 |       100.000
+    10.0  | dropout=10%        |      96.000 |        8.000 |       100.000
+    20.0  | dropout=0%         |     100.000 |        0.000 |       150.000
+    20.0  | dropout=1%         |     100.000 |        0.000 |       150.000
+    20.0  | dropout=5%         |      98.286 |        1.333 |       150.000
+    20.0  | dropout=10%        |      96.000 |        8.000 |       150.000
+    40.0  | dropout=0%         |     100.000 |        0.000 |       175.000
+    40.0  | dropout=1%         |     100.000 |        0.000 |       175.000
+    40.0  | dropout=5%         |      98.286 |        1.333 |       175.000
+    40.0  | dropout=10%        |      96.000 |        8.000 |       175.000
+    80.0  | dropout=0%         |     100.000 |        0.000 |       192.000
+    80.0  | dropout=1%         |     100.000 |        0.000 |       192.000
+    80.0  | dropout=5%         |      98.286 |        1.333 |       192.000
+    80.0  | dropout=10%        |      96.000 |        8.000 |       192.000
+
+--- Stop-Signal: dropout sweep ---
+    Freq  | Pert Level         | stop_fail% |   SSRT_s | inh_mono
+     5.0  | dropout=0%         |      0.000 |      N/A |     True
+     5.0  | dropout=1%         |      0.000 |      N/A |     True
+     5.0  | dropout=5%         |      0.000 |      N/A |     True
+     5.0  | dropout=10%        |      0.000 |      N/A |     True
+    10.0  | dropout=0%         |      0.000 |   -0.402 |     True
+    10.0  | dropout=1%         |      2.143 |   -0.401 |     True
+    10.0  | dropout=5%         |      4.286 |   -0.400 |     True
+    10.0  | dropout=10%        |     10.000 |   -0.392 |    False
+    20.0  | dropout=0%         |      0.000 |   -0.409 |     True
+    20.0  | dropout=1%         |      2.143 |   -0.408 |     True
+    20.0  | dropout=5%         |      4.286 |   -0.407 |     True
+    20.0  | dropout=10%        |     10.000 |   -0.399 |    False
+    40.0  | dropout=0%         |      0.000 |   -0.410 |     True
+    40.0  | dropout=1%         |      2.143 |   -0.409 |     True
+    40.0  | dropout=5%         |      4.286 |   -0.408 |     True
+    40.0  | dropout=10%        |     10.000 |   -0.400 |    False
+    80.0  | dropout=0%         |      0.000 |   -0.410 |     True
+    80.0  | dropout=1%         |      2.143 |   -0.409 |     True
+    80.0  | dropout=5%         |      4.286 |   -0.408 |     True
+    80.0  | dropout=10%        |     10.000 |   -0.400 |    False
+
+--- Go/No-Go: phase_offset sweep ---
+    Freq  | Pert Level         | go_success% | false_alarm% | commit_lat_ms
+     5.0  | phase_offset=0%    |       0.000 |        0.000 |         0.000
+     5.0  | phase_offset=25%   |       0.000 |        0.000 |         0.000
+     5.0  | phase_offset=50%   |       0.000 |        0.000 |         0.000
+     5.0  | phase_offset=75%   |       0.000 |        0.000 |         0.000
+    10.0  | phase_offset=0%    |     100.000 |        0.000 |       100.000
+    10.0  | phase_offset=25%   |     100.000 |        0.000 |       100.000
+    10.0  | phase_offset=50%   |     100.000 |        0.000 |       100.000
+    10.0  | phase_offset=75%   |     100.000 |        0.000 |       100.000
+    20.0  | phase_offset=0%    |     100.000 |        0.000 |       150.000
+    20.0  | phase_offset=25%   |     100.000 |        0.000 |       150.000
+    20.0  | phase_offset=50%   |     100.000 |        0.000 |       150.000
+    20.0  | phase_offset=75%   |     100.000 |        0.000 |       150.000
+    40.0  | phase_offset=0%    |     100.000 |        0.000 |       175.000
+    40.0  | phase_offset=25%   |     100.000 |        0.000 |       175.000
+    40.0  | phase_offset=50%   |     100.000 |        0.000 |       175.000
+    40.0  | phase_offset=75%   |     100.000 |        0.000 |       175.000
+    80.0  | phase_offset=0%    |     100.000 |        0.000 |       192.000
+    80.0  | phase_offset=25%   |     100.000 |        0.000 |       192.000
+    80.0  | phase_offset=50%   |     100.000 |        0.000 |       192.000
+    80.0  | phase_offset=75%   |     100.000 |        0.000 |       192.000
+
+--- Stop-Signal: phase_offset sweep ---
+    Freq  | Pert Level         | stop_fail% |   SSRT_s | inh_mono
+     5.0  | phase_offset=0%    |      0.000 |      N/A |     True
+     5.0  | phase_offset=25%   |      0.000 |      N/A |     True
+     5.0  | phase_offset=50%   |      0.000 |      N/A |     True
+     5.0  | phase_offset=75%   |      0.000 |      N/A |     True
+    10.0  | phase_offset=0%    |      0.000 |   -0.402 |     True
+    10.0  | phase_offset=25%   |      0.000 |   -0.377 |     True
+    10.0  | phase_offset=50%   |      0.000 |   -0.352 |     True
+    10.0  | phase_offset=75%   |      0.000 |   -0.327 |     True
+    20.0  | phase_offset=0%    |      0.000 |   -0.409 |     True
+    20.0  | phase_offset=25%   |      0.000 |   -0.396 |     True
+    20.0  | phase_offset=50%   |      0.000 |   -0.384 |     True
+    20.0  | phase_offset=75%   |      0.000 |   -0.371 |     True
+    40.0  | phase_offset=0%    |      0.000 |   -0.410 |     True
+    40.0  | phase_offset=25%   |      0.000 |   -0.404 |     True
+    40.0  | phase_offset=50%   |      0.000 |   -0.398 |     True
+    40.0  | phase_offset=75%   |      0.000 |   -0.392 |     True
+    80.0  | phase_offset=0%    |      0.000 |   -0.410 |     True
+    80.0  | phase_offset=25%   |      0.000 |   -0.407 |     True
+    80.0  | phase_offset=50%   |      0.000 |   -0.404 |     True
+    80.0  | phase_offset=75%   |      0.000 |   -0.401 |     True
+
+================================================================

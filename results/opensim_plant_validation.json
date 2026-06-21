@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "deterministic": true,
+  "endpoint_error_tol": 0.02,
+  "per_channel": [
+    {
+      "channel": 0,
+      "endpoint_error": 0.01385298916322304,
+      "monotone_progress": true,
+      "duration_ms": 250.0,
+      "final_progress_fraction": 0.9645341217265032
+    },
+    {
+      "channel": 1,
+      "endpoint_error": 0.01151882216203975,
+      "monotone_progress": true,
+      "duration_ms": 244.0,
+      "final_progress_fraction": 0.9526471852485064
+    }
+  ]
+}

@@ -1,0 +1,242 @@
+[
+  {
+    "frequency_hz": 5.0,
+    "n_trials": 500,
+    "n_seeds": 5,
+    "metrics": {
+      "n_trials": 500,
+      "n_go_trials": 360,
+      "n_stop_trials": 140,
+      "go_rt_mean_s": null,
+      "go_rt_std_s": null,
+      "failed_stop_rt_mean_s": null,
+      "stop_failure_rate": 0.0,
+      "inhibition_function": {
+        "200": 0.0,
+        "250": 0.0,
+        "300": 0.0,
+        "350": 0.0,
+        "400": 0.0,
+        "450": 0.0
+      },
+      "inhibition_function_n": {
+        "200": 5,
+        "250": 5,
+        "300": 5,
+        "350": 5,
+        "400": 5,
+        "450": 115
+      },
+      "ssrt_estimate_s": null,
+      "mean_ssd_ms": 423.2142857142857,
+      "cancellation_latency_mean_s": 0.0767857142857144,
+      "trigger_failure_rate": null
+    },
+    "validity": {
+      "go_rt_mean_s": null,
+      "failed_stop_rt_mean_s": null,
+      "rt_check_passed": false,
+      "rt_check_note": "No stop failures: RT check not applicable.",
+      "n_total_trials": 500,
+      "n_stop_trials": 140,
+      "n_go_trials": 360,
+      "n_late_stop_trials": 0,
+      "n_excluded_for_ssrt": 0,
+      "independence_assumption_note": "Race model independence assumed. In Phase 7, go and stop processes share the CortexEvidenceGenerator; true statistical independence is not guaranteed but is not empirically testable from behavioural data alone.",
+      "empirical_stop_proportion": 0.28,
+      "inhibition_function_monotone": true
+    }
+  },
+  {
+    "frequency_hz": 10.0,
+    "n_trials": 500,
+    "n_seeds": 5,
+    "metrics": {
+      "n_trials": 500,
+      "n_go_trials": 360,
+      "n_stop_trials": 140,
+      "go_rt_mean_s": 0.02099999999999992,
+      "go_rt_std_s": 9.71445146547012e-17,
+      "failed_stop_rt_mean_s": null,
+      "stop_failure_rate": 0.0,
+      "inhibition_function": {
+        "200": 0.0,
+        "250": 0.0,
+        "300": 0.0,
+        "350": 0.0,
+        "400": 0.0,
+        "450": 0.0
+      },
+      "inhibition_function_n": {
+        "200": 5,
+        "250": 5,
+        "300": 5,
+        "350": 5,
+        "400": 5,
+        "450": 115
+      },
+      "ssrt_estimate_s": -0.4022142857142858,
+      "mean_ssd_ms": 423.2142857142857,
+      "cancellation_latency_mean_s": 0.0767857142857144,
+      "trigger_failure_rate": null
+    },
+    "validity": {
+      "go_rt_mean_s": 0.02099999999999992,
+      "failed_stop_rt_mean_s": null,
+      "rt_check_passed": false,
+      "rt_check_note": "No stop failures: RT check not applicable.",
+      "n_total_trials": 500,
+      "n_stop_trials": 140,
+      "n_go_trials": 360,
+      "n_late_stop_trials": 0,
+      "n_excluded_for_ssrt": 0,
+      "independence_assumption_note": "Race model independence assumed. In Phase 7, go and stop processes share the CortexEvidenceGenerator; true statistical independence is not guaranteed but is not empirically testable from behavioural data alone.",
+      "empirical_stop_proportion": 0.28,
+      "inhibition_function_monotone": true
+    }
+  },
+  {
+    "frequency_hz": 20.0,
+    "n_trials": 500,
+    "n_seeds": 5,
+    "metrics": {
+      "n_trials": 500,
+      "n_go_trials": 360,
+      "n_stop_trials": 140,
+      "go_rt_mean_s": 0.014000000000000146,
+      "go_rt_std_s": 1.3357370765021415e-16,
+      "failed_stop_rt_mean_s": null,
+      "stop_failure_rate": 0.0,
+      "inhibition_function": {
+        "200": 0.0,
+        "250": 0.0,
+        "300": 0.0,
+        "350": 0.0,
+        "400": 0.0,
+        "450": 0.0
+      },
+      "inhibition_function_n": {
+        "200": 5,
+        "250": 5,
+        "300": 5,
+        "350": 5,
+        "400": 5,
+        "450": 115
+      },
+      "ssrt_estimate_s": -0.4092142857142856,
+      "mean_ssd_ms": 423.2142857142857,
+      "cancellation_latency_mean_s": 0.0767857142857144,
+      "trigger_failure_rate": null
+    },
+    "validity": {
+      "go_rt_mean_s": 0.014000000000000146,
+      "failed_stop_rt_mean_s": null,
+      "rt_check_passed": false,
+      "rt_check_note": "No stop failures: RT check not applicable.",
+      "n_total_trials": 500,
+      "n_stop_trials": 140,
+      "n_go_trials": 360,
+      "n_late_stop_trials": 0,
+      "n_excluded_for_ssrt": 0,
+      "independence_assumption_note": "Race model independence assumed. In Phase 7, go and stop processes share the CortexEvidenceGenerator; true statistical independence is not guaranteed but is not empirically testable from behavioural data alone.",
+      "empirical_stop_proportion": 0.28,
+      "inhibition_function_monotone": true
+    }
+  },
+  {
+    "frequency_hz": 40.0,
+    "n_trials": 500,
+    "n_seeds": 5,
+    "metrics": {
+      "n_trials": 500,
+      "n_go_trials": 360,
+      "n_stop_trials": 140,
+      "go_rt_mean_s": 0.012999999999999925,
+      "go_rt_std_s": 8.673617379884035e-17,
+      "failed_stop_rt_mean_s": null,
+      "stop_failure_rate": 0.0,
+      "inhibition_function": {
+        "200": 0.0,
+        "250": 0.0,
+        "300": 0.0,
+        "350": 0.0,
+        "400": 0.0,
+        "450": 0.0
+      },
+      "inhibition_function_n": {
+        "200": 5,
+        "250": 5,
+        "300": 5,
+        "350": 5,
+        "400": 5,
+        "450": 115
+      },
+      "ssrt_estimate_s": -0.4102142857142858,
+      "mean_ssd_ms": 423.2142857142857,
+      "cancellation_latency_mean_s": 0.0767857142857144,
+      "trigger_failure_rate": null
+    },
+    "validity": {
+      "go_rt_mean_s": 0.012999999999999925,
+      "failed_stop_rt_mean_s": null,
+      "rt_check_passed": false,
+      "rt_check_note": "No stop failures: RT check not applicable.",
+      "n_total_trials": 500,
+      "n_stop_trials": 140,
+      "n_go_trials": 360,
+      "n_late_stop_trials": 0,
+      "n_excluded_for_ssrt": 0,
+      "independence_assumption_note": "Race model independence assumed. In Phase 7, go and stop processes share the CortexEvidenceGenerator; true statistical independence is not guaranteed but is not empirically testable from behavioural data alone.",
+      "empirical_stop_proportion": 0.28,
+      "inhibition_function_monotone": true
+    }
+  },
+  {
+    "frequency_hz": 80.0,
+    "n_trials": 500,
+    "n_seeds": 5,
+    "metrics": {
+      "n_trials": 500,
+      "n_go_trials": 360,
+      "n_stop_trials": 140,
+      "go_rt_mean_s": 0.012999999999999925,
+      "go_rt_std_s": 8.673617379884035e-17,
+      "failed_stop_rt_mean_s": null,
+      "stop_failure_rate": 0.0,
+      "inhibition_function": {
+        "200": 0.0,
+        "250": 0.0,
+        "300": 0.0,
+        "350": 0.0,
+        "400": 0.0,
+        "450": 0.0
+      },
+      "inhibition_function_n": {
+        "200": 5,
+        "250": 5,
+        "300": 5,
+        "350": 5,
+        "400": 5,
+        "450": 115
+      },
+      "ssrt_estimate_s": -0.4102142857142858,
+      "mean_ssd_ms": 423.2142857142857,
+      "cancellation_latency_mean_s": 0.0767857142857144,
+      "trigger_failure_rate": null
+    },
+    "validity": {
+      "go_rt_mean_s": 0.012999999999999925,
+      "failed_stop_rt_mean_s": null,
+      "rt_check_passed": false,
+      "rt_check_note": "No stop failures: RT check not applicable.",
+      "n_total_trials": 500,
+      "n_stop_trials": 140,
+      "n_go_trials": 360,
+      "n_late_stop_trials": 0,
+      "n_excluded_for_ssrt": 0,
+      "independence_assumption_note": "Race model independence assumed. In Phase 7, go and stop processes share the CortexEvidenceGenerator; true statistical independence is not guaranteed but is not empirically testable from behavioural data alone.",
+      "empirical_stop_proportion": 0.28,
+      "inhibition_function_monotone": true
+    }
+  }
+]

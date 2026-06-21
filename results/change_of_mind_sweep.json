@@ -1,0 +1,142 @@
+[
+  {
+    "frequency_hz": 5.0,
+    "n_trials": 400,
+    "n_seeds": 5,
+    "change_of_mind_probability": 0.0,
+    "perseveration_rate": 0.0,
+    "mean_revision_latency_ms": null,
+    "switch_success_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "perseveration_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "revision_latency_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "mean_trajectory_reversal_time_ms": null,
+    "mean_correction_cost": null
+  },
+  {
+    "frequency_hz": 10.0,
+    "n_trials": 400,
+    "n_seeds": 5,
+    "change_of_mind_probability": 1.0,
+    "perseveration_rate": 0.0,
+    "mean_revision_latency_ms": 312.5,
+    "switch_success_by_category": {
+      "early": 1.0,
+      "medium": 1.0,
+      "late": 1.0,
+      "very_late": 1.0
+    },
+    "perseveration_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "revision_latency_by_category": {
+      "early": 500.0,
+      "medium": 399.99999999999994,
+      "late": 250.0,
+      "very_late": 99.99999999999999
+    },
+    "mean_trajectory_reversal_time_ms": 526.0,
+    "mean_correction_cost": 0.16065390661910717
+  },
+  {
+    "frequency_hz": 20.0,
+    "n_trials": 400,
+    "n_seeds": 5,
+    "change_of_mind_probability": 1.0,
+    "perseveration_rate": 0.0,
+    "mean_revision_latency_ms": 312.5,
+    "switch_success_by_category": {
+      "early": 1.0,
+      "medium": 1.0,
+      "late": 1.0,
+      "very_late": 1.0
+    },
+    "perseveration_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "revision_latency_by_category": {
+      "early": 500.0,
+      "medium": 399.99999999999994,
+      "late": 250.0,
+      "very_late": 99.99999999999999
+    },
+    "mean_trajectory_reversal_time_ms": 676.0,
+    "mean_correction_cost": 0.4319996595382696
+  },
+  {
+    "frequency_hz": 40.0,
+    "n_trials": 400,
+    "n_seeds": 5,
+    "change_of_mind_probability": 1.0,
+    "perseveration_rate": 0.0,
+    "mean_revision_latency_ms": 312.5,
+    "switch_success_by_category": {
+      "early": 1.0,
+      "medium": 1.0,
+      "late": 1.0,
+      "very_late": 1.0
+    },
+    "perseveration_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "revision_latency_by_category": {
+      "early": 500.0,
+      "medium": 399.99999999999994,
+      "late": 250.0,
+      "very_late": 99.99999999999999
+    },
+    "mean_trajectory_reversal_time_ms": 676.0,
+    "mean_correction_cost": 0.40245949074074067
+  },
+  {
+    "frequency_hz": 80.0,
+    "n_trials": 400,
+    "n_seeds": 5,
+    "change_of_mind_probability": 1.0,
+    "perseveration_rate": 0.0,
+    "mean_revision_latency_ms": 312.5,
+    "switch_success_by_category": {
+      "early": 1.0,
+      "medium": 1.0,
+      "late": 1.0,
+      "very_late": 1.0
+    },
+    "perseveration_by_category": {
+      "early": 0.0,
+      "medium": 0.0,
+      "late": 0.0,
+      "very_late": 0.0
+    },
+    "revision_latency_by_category": {
+      "early": 500.0,
+      "medium": 399.99999999999994,
+      "late": 250.0,
+      "very_late": 99.99999999999999
+    },
+    "mean_trajectory_reversal_time_ms": 676.0,
+    "mean_correction_cost": 0.36866910336000025
+  }
+]

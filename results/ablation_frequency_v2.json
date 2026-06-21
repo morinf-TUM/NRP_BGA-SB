@@ -1,0 +1,177 @@
+[
+  {
+    "condition": "baseline",
+    "knob_name": "all",
+    "freq_hz": 160.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 5.0,
+    "miss_rate": 1.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 10.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 20.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 40.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 80.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "input_sampling_hz",
+    "freq_hz": 160.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 5.0,
+    "miss_rate": 1.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 10.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 20.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 40.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 80.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "integration_step_hz",
+    "freq_hz": 160.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 5.0,
+    "miss_rate": 1.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 10.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 20.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 40.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 80.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "output_emission_hz",
+    "freq_hz": 160.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 5.0,
+    "miss_rate": 1.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 10.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 20.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 40.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 80.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  },
+  {
+    "condition": "ablation",
+    "knob_name": "commitment_update_hz",
+    "freq_hz": 160.0,
+    "miss_rate": 0.0,
+    "n_go_trials": 24
+  }
+]
