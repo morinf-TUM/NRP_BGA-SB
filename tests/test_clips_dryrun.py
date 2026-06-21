@@ -1,16 +1,15 @@
-import pytest
 from visuals.clips import (
-    write_threshold_frames,
-    write_cerebellum_frames,
-    write_perturbation_frames,
-    write_interpretations_frames,
     write_bridge_frames,
-)
-from visuals.trajectory_gen import (
-    generate_threshold_trajectories,
-    generate_cerebellum_trajectories,
+    write_cerebellum_frames,
+    write_interpretations_frames,
+    write_perturbation_frames,
+    write_threshold_frames,
 )
 from visuals.data_loader import load_perturbation_gonogo, load_perturbation_stopsignal
+from visuals.trajectory_gen import (
+    generate_cerebellum_trajectories,
+    generate_threshold_trajectories,
+)
 
 
 def test_threshold_dryrun_returns_positive_count():

@@ -9,15 +9,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 import numpy as np
 
 from visuals.style import (
     DARK_THEME,
-    FREQ_COLORS,
     FIG_SIZE_1080P,
+    FREQ_COLORS,
     VERDICT_COLORS,
     apply_theme,
 )

@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")   # non-interactive backend: no display required
 import matplotlib.pyplot as plt
 import numpy as np

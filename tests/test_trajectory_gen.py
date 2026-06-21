@@ -1,10 +1,9 @@
-import pytest
 from visuals.trajectory_gen import (
-    generate_threshold_trajectories,
-    generate_cerebellum_trajectories,
     THRESHOLD_FREQUENCIES,
-    VISUAL_REACHER_CONFIG,
+    generate_cerebellum_trajectories,
+    generate_threshold_trajectories,
 )
+
 
 def test_threshold_returns_one_per_frequency():
     trials = generate_threshold_trajectories()

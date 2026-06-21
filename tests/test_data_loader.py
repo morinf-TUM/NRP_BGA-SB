@@ -1,12 +1,12 @@
-import pytest
 from visuals.data_loader import (
+    load_bg_validation,
+    load_cerebellum_results,
     load_frequency_sweep,
+    load_opensim_gonogo,
     load_perturbation_gonogo,
     load_perturbation_stopsignal,
-    load_cerebellum_results,
-    load_bg_validation,
-    load_opensim_gonogo,
 )
+
 
 def test_frequency_sweep_shape():
     data = load_frequency_sweep()

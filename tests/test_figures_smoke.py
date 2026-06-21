@@ -1,9 +1,7 @@
-import pytest
-from pathlib import Path
 from visuals.figures import (
+    fig_cerebellum_learning,
     fig_frequency_threshold,
     fig_perturbation_decomposition,
-    fig_cerebellum_learning,
     fig_three_interpretations,
 )
 from visuals.trajectory_gen import generate_cerebellum_trajectories

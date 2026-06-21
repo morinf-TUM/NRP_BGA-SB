@@ -1,7 +1,7 @@
-import pytest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
-from visuals.assemble import encode_clip, build_hero, _ffmpeg_encode_args, _concat_manifest
+from unittest.mock import MagicMock, patch
+
+from visuals.assemble import _concat_manifest, _ffmpeg_encode_args, build_hero, encode_clip
 
 
 def test_ffmpeg_encode_args_contains_required_flags():
@@ -44,7 +44,7 @@ def test_encode_clip_calls_ffmpeg(tmp_path):
     out = tmp_path / "clip.mp4"
     with patch("visuals.assemble.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
-        result = encode_clip(frames_dir, out, fps=24, fade_frames=5)
+        encode_clip(frames_dir, out, fps=24, fade_frames=5)
     assert mock_run.called
     args_used = mock_run.call_args[0][0]
     assert "ffmpeg" in args_used[0]
@@ -58,5 +58,5 @@ def test_build_hero_calls_ffmpeg(tmp_path):
     hero = tmp_path / "hero.mp4"
     with patch("visuals.assemble.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
-        result = build_hero(clips, hero)
+        build_hero(clips, hero)
     assert mock_run.called
