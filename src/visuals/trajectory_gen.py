@@ -92,7 +92,7 @@ def generate_cerebellum_trajectories(n_trials: int = 30) -> list[dict]:
 
     ForwardModelController is disabled (online_enabled=False) so the learning
     curve is visible across trials — the arc endpoint rotates gradually back
-    toward the target as theta_hat builds from 0 → ~27°.
+    toward the target as theta_hat decreases from 0 → ~-0.52 rad (counter-rotation).
 
     Returns:
         List of dicts (one per trial):
