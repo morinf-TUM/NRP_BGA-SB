@@ -26,6 +26,12 @@ FPS = 24
 _BG = "#0d1117"     # figure background colour
 _FG = "#e6edf3"     # text and axis colour
 
+# 2-link planar arm model: shoulder fixed at (0, -0.1);
+# each link is 0.6 units → max reach 1.2, target at (0, 1.0) at distance 1.1.
+_SHOULDER = (0.0, -0.1)
+_ARM_L1   = 0.6
+_ARM_L2   = 0.6
+
 
 # --- Internal helpers ---
 
@@ -77,6 +83,44 @@ def _title_card_frames(title_text: str, frames_dir: Path | None,
     return n_frames
 
 
+# --- Arm model helpers ---
+
+def _compute_elbow(endpoint_xy: list[float]) -> tuple[float, float]:
+    """Return elbow position for shoulder fixed at _SHOULDER (elbow-left convention).
+
+    Uses the law of cosines at the shoulder. Adding alpha to phi gives the
+    CCW (left) elbow solution, which keeps the elbow to the left for an upward reach.
+    """
+    sx, sy = _SHOULDER
+    ex, ey = endpoint_xy
+    dx, dy = ex - sx, ey - sy
+    d = float(np.sqrt(dx * dx + dy * dy))
+    # Clamp to the reachable band so the formula stays numerically stable.
+    d = float(np.clip(d, abs(_ARM_L1 - _ARM_L2) + 0.001, _ARM_L1 + _ARM_L2 - 0.001))
+    cos_alpha = (d * d + _ARM_L1 * _ARM_L1 - _ARM_L2 * _ARM_L2) / (2.0 * d * _ARM_L1)
+    alpha = float(np.arccos(float(np.clip(cos_alpha, -1.0, 1.0))))
+    phi = float(np.arctan2(dy, dx))
+    # elbow-right: subtract alpha from phi so the elbow sits to the right for
+    # an upward reach, matching the natural frontal-plane pose of a right arm.
+    return (sx + _ARM_L1 * np.cos(phi - alpha),
+            sy + _ARM_L1 * np.sin(phi - alpha))
+
+
+def _draw_arm(ax: plt.Axes, endpoint_xy: list[float],
+              color: str, alpha: float = 1.0) -> None:
+    """Draw a two-link planar arm (shoulder → elbow → hand) at the given endpoint."""
+    sx, sy = _SHOULDER
+    elbow_x, elbow_y = _compute_elbow(endpoint_xy)
+    ex, ey = endpoint_xy
+    ax.plot([sx, elbow_x], [sy, elbow_y],
+            color=color, linewidth=8, solid_capstyle="round", alpha=alpha, zorder=3)
+    ax.plot([elbow_x, ex], [elbow_y, ey],
+            color=color, linewidth=6, solid_capstyle="round", alpha=alpha, zorder=3)
+    ax.scatter([sx], [sy], color=color, s=140, zorder=5, alpha=alpha)
+    ax.scatter([elbow_x], [elbow_y], color=color, s=100, zorder=5, alpha=alpha)
+    ax.scatter([ex], [ey], color=color, s=160, zorder=6, alpha=alpha)
+
+
 # --- Clip 1: Frequency threshold ---
 
 _THRESHOLD_FRAMES_PER_FREQ = 72    # 3 s per frequency
@@ -97,86 +141,90 @@ def write_threshold_frames(
         return total
 
     idx = 0
-    # Title card
     idx += _title_card_frames(
         "BG update frequency governs action commitment",
         frames_dir, _THRESHOLD_TITLE_FRAMES, dry_run=False, start_index=idx,
     )
 
     target_x, target_y = 0.0, 1.0
-    hold   = FPS // 2         # 0.5 s hold before arc
-    arc_f  = FPS * 2          # 2 s arc draw
-    result = FPS // 2         # 0.5 s result label hold
+    hold   = FPS // 2      # 0.5 s: arm at rest
+    arc_f  = FPS * 2       # 2.0 s: arm moves through trajectory
+    result = FPS // 2      # 0.5 s: result label hold
     # hold + arc_f + result = 12 + 48 + 12 = 72 = _THRESHOLD_FRAMES_PER_FREQ
 
     for trial in trials:
-        freq     = trial["frequency_hz"]
-        color    = FREQ_COLORS.get(int(freq), "#e6edf3")
-        hit      = not trial["gate_closed"]
+        freq      = trial["frequency_hz"]
+        color     = FREQ_COLORS.get(int(freq), "#e6edf3")
+        hit       = not trial["gate_closed"]
         positions = trial["positions_xy"]
+        start_pos = positions[0]   # always (0.0, 0.0)
 
-        # Hold: show target + frequency label only
-        for i in range(hold):
+        # Strip the pre-onset stationary section so the arc animation shows
+        # only actual movement (avoids arm stuck at bottom for most of the clip).
+        moving = [i for i, p in enumerate(positions)
+                  if abs(p[0] - start_pos[0]) > 0.001 or abs(p[1] - start_pos[1]) > 0.001]
+        anim_pos = positions[moving[0]:] if moving else positions
+
+        def _base(ax_: plt.Axes) -> None:
+            ax_.set_xlim(-1.0, 1.0)
+            ax_.set_ylim(-0.3, 1.4)
+            ax_.axis("off")
+            ax_.scatter([target_x], [target_y], color="#e6edf3", s=200, zorder=5)
+            ax_.text(0.05, 0.95, f"{int(freq)} Hz", color=color, fontsize=20,
+                     fontweight="bold", transform=ax_.transAxes, va="top")
+
+        # Hold: arm at rest position
+        for _ in range(hold):
             fig, ax = _new_dark_fig()
-            ax.set_xlim(-1.5, 1.5)
-            ax.set_ylim(-0.2, 1.6)
-            ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=200, zorder=5)
-            ax.text(0.05, 0.95, f"{int(freq)} Hz", color=color, fontsize=20,
-                    fontweight="bold", transform=ax.transAxes, va="top")
+            _base(ax)
+            _draw_arm(ax, start_pos, color)
             _save_frame(fig, frames_dir, idx)
             idx += 1
 
-        # Arc draw: progressively reveal the trajectory
+        # Arc draw: arm moves through the movement portion of the trajectory
         for i in range(arc_f):
             fig, ax = _new_dark_fig()
-            ax.set_xlim(-1.5, 1.5)
-            ax.set_ylim(-0.2, 1.6)
-            ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=200, zorder=5)
-            ax.text(0.05, 0.95, f"{int(freq)} Hz", color=color, fontsize=20,
-                    fontweight="bold", transform=ax.transAxes, va="top")
-            if hit and positions:
-                reveal = max(2, int((i + 1) / arc_f * len(positions)))
-                xs = [p[0] for p in positions[:reveal]]
-                ys = [p[1] for p in positions[:reveal]]
-                _draw_glow_arc(ax, xs, ys, color)
-                # Hand dot
-                ax.scatter([xs[-1]], [ys[-1]], color=color, s=120, zorder=6)
+            _base(ax)
+            if hit:
+                reveal      = max(2, int((i + 1) / arc_f * len(anim_pos)))
+                current_pos = anim_pos[reveal - 1]
+                xs = [p[0] for p in anim_pos[:reveal]]
+                ys = [p[1] for p in anim_pos[:reveal]]
+                _draw_glow_arc(ax, xs, ys, color, alpha=0.25)
+                _draw_arm(ax, current_pos, color)
+            else:
+                _draw_arm(ax, start_pos, color)
             _save_frame(fig, frames_dir, idx)
             idx += 1
 
         # Result label
-        label = "✓ HIT" if hit else "✗ MISS"
+        label       = "✓ HIT" if hit else "✗ MISS"
         label_color = "#22c55e" if hit else "#ef4444"
-        for i in range(result):
+        final_pos   = anim_pos[-1] if hit else start_pos
+        for _ in range(result):
             fig, ax = _new_dark_fig()
-            ax.set_xlim(-1.5, 1.5)
-            ax.set_ylim(-0.2, 1.6)
-            ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=200, zorder=5)
-            ax.text(0.05, 0.95, f"{int(freq)} Hz", color=color, fontsize=20,
-                    fontweight="bold", transform=ax.transAxes, va="top")
-            if hit and positions:
-                xs = [p[0] for p in positions]
-                ys = [p[1] for p in positions]
-                _draw_glow_arc(ax, xs, ys, color, alpha=0.7)
-            ax.text(0.5, 0.15, label, color=label_color, fontsize=22,
+            _base(ax)
+            if hit:
+                xs = [p[0] for p in anim_pos]
+                ys = [p[1] for p in anim_pos]
+                _draw_glow_arc(ax, xs, ys, color, alpha=0.2)
+            _draw_arm(ax, final_pos, color)
+            ax.text(0.5, 0.08, label, color=label_color, fontsize=22,
                     fontweight="bold", ha="center", transform=ax.transAxes)
             _save_frame(fig, frames_dir, idx)
             idx += 1
 
-    # Caption
+    # Caption card
     for i in range(_THRESHOLD_CAPTION_FRAMES):
         fig, ax = _new_dark_fig()
-        ax.set_xlim(-1.5, 1.5)
-        ax.set_ylim(-0.2, 1.6)
+        ax.set_xlim(-1.0, 1.0)
+        ax.set_ylim(-0.3, 1.4)
         ax.axis("off")
-        alpha = min(1.0, i / (FPS * 0.5))
+        fade = min(1.0, i / (FPS * 0.5))
         ax.text(0.5, 0.5,
                 "Below 10 Hz the BG samples only\nneutral cortical evidence",
                 color=_FG, fontsize=18, ha="center", va="center",
-                transform=ax.transAxes, alpha=alpha)
+                transform=ax.transAxes, alpha=fade)
         _save_frame(fig, frames_dir, idx)
         idx += 1
 
@@ -207,33 +255,38 @@ def write_cerebellum_frames(
     )
 
     target_x, target_y = 0.0, 1.0
-    # Colour gradient: red (early, deflected) → green (late, corrected)
     n = len(go_trials)
 
     for ti, trial in enumerate(go_trials):
-        frac   = ti / max(1, n - 1)       # 0.0 → 1.0 across trials
+        frac  = ti / max(1, n - 1)        # 0.0 → 1.0 across trials
         r = int(239 * (1 - frac) + 34 * frac)
         g = int(68  * (1 - frac) + 197 * frac)
         b = int(68  * (1 - frac) + 94  * frac)
-        color  = f"#{r:02x}{g:02x}{b:02x}"
+        color     = f"#{r:02x}{g:02x}{b:02x}"
         positions = trial["positions_xy"]
         theta_deg = trial["theta_hat"] * 180.0 / np.pi
 
         arc_f  = int(_CEREB_FRAMES_PER_TRIAL * 0.7)    # 70% drawing arc
-        hold_f = _CEREB_FRAMES_PER_TRIAL - arc_f       # 30% hold
+        hold_f = _CEREB_FRAMES_PER_TRIAL - arc_f        # 30% hold at endpoint
+
+        # Strip pre-onset stationary frames so the animation shows only movement.
+        start_pos = positions[0]
+        moving = [i for i, p in enumerate(positions)
+                  if abs(p[0] - start_pos[0]) > 0.001 or abs(p[1] - start_pos[1]) > 0.001]
+        anim_pos = positions[moving[0]:] if moving else positions
 
         for i in range(arc_f):
             fig, ax = _new_dark_fig()
             ax.set_xlim(-1.0, 1.0)
-            ax.set_ylim(-0.2, 1.4)
+            ax.set_ylim(-0.3, 1.4)
             ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=180, zorder=5,
-                       label="Target")
-            reveal = max(2, int((i + 1) / arc_f * len(positions)))
-            xs = [p[0] for p in positions[:reveal]]
-            ys = [p[1] for p in positions[:reveal]]
-            _draw_glow_arc(ax, xs, ys, color)
-            ax.scatter([xs[-1]], [ys[-1]], color=color, s=100, zorder=6)
+            ax.scatter([target_x], [target_y], color="#e6edf3", s=180, zorder=5)
+            reveal      = max(2, int((i + 1) / arc_f * len(anim_pos)))
+            current_pos = anim_pos[reveal - 1]
+            xs = [p[0] for p in anim_pos[:reveal]]
+            ys = [p[1] for p in anim_pos[:reveal]]
+            _draw_glow_arc(ax, xs, ys, color, alpha=0.25)
+            _draw_arm(ax, current_pos, color)
             ax.text(0.05, 0.95, f"Trial {ti + 1}", color=_FG, fontsize=16,
                     fontweight="bold", transform=ax.transAxes, va="top")
             ax.text(0.05, 0.88, f"θ̂ = {theta_deg:.1f}°", color="#a855f7",
@@ -241,15 +294,17 @@ def write_cerebellum_frames(
             _save_frame(fig, frames_dir, idx)
             idx += 1
 
-        for i in range(hold_f):
+        final_pos = anim_pos[-1]
+        xs_full   = [p[0] for p in anim_pos]
+        ys_full   = [p[1] for p in anim_pos]
+        for _ in range(hold_f):
             fig, ax = _new_dark_fig()
             ax.set_xlim(-1.0, 1.0)
-            ax.set_ylim(-0.2, 1.4)
+            ax.set_ylim(-0.3, 1.4)
             ax.axis("off")
             ax.scatter([target_x], [target_y], color="#e6edf3", s=180, zorder=5)
-            xs = [p[0] for p in positions]
-            ys = [p[1] for p in positions]
-            _draw_glow_arc(ax, xs, ys, color, alpha=0.6)
+            _draw_glow_arc(ax, xs_full, ys_full, color, alpha=0.2)
+            _draw_arm(ax, final_pos, color, alpha=0.85)
             ax.text(0.05, 0.95, f"Trial {ti + 1}", color=_FG, fontsize=16,
                     fontweight="bold", transform=ax.transAxes, va="top")
             ax.text(0.05, 0.88, f"θ̂ = {theta_deg:.1f}°", color="#a855f7",

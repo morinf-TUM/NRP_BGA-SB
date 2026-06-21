@@ -55,12 +55,18 @@ def generate_threshold_trajectories() -> list[dict]:
             selected_channel : int       — -1 for miss
             gate_closed   : bool         — True means no movement
     """
+    # Trigger: default full_open_threshold=0.30 exceeds the BG margin ≈0.20,
+    # causing partial gate (gain=0.6) → endpoint reaches only 60% of target.
+    # Why: clip must show the arm reaching the target dot, not stalling short.
+    # Outcome: gate_state="open", gate_gain=1.0 on every go trial.
+    thalamus_cfg = ThalamusConfig(margin_threshold=0.05, full_open_threshold=0.20)
     reacher = KinematicReacher(VISUAL_REACHER_CONFIG)
     results = []
     for freq in THRESHOLD_FREQUENCIES:
         policy = make_closed_loop_policy(
             frequency_config=FrequencyConfig.from_effective_hz(float(freq)),
             accumulation_ms=200.0,
+            thalamus_config=thalamus_cfg,
         )
         trials = run_go_nogo_trials(_SINGLE_GO_CONFIG, policy)
         trial = trials[0]
