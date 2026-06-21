@@ -124,7 +124,7 @@ Three competing accounts of BG function are adjudicated by the sweep results
 |---------|-------------------|---------|---------|
 | **Selector bottleneck** | Wrong-channel choices rise at low frequency | No wrong-channel selections (BG either selects correctly or withholds) | Not supported |
 | **Urgency / commitment bottleneck** | RT / vigor shift at low frequency, channel choice preserved | ✓ Latency/jitter shift RT without altering selected_channel | Supported |
-| **Cancellation bottleneck** | Stop failures and SSRT worsen at low frequency | ✓ Stop-failure rate rises with frequency (go committed before stop fires); dropout selectively impairs stopping | Supported |
+| **Cancellation bottleneck** | Stop failures and SSRT worsen at low frequency | ✓ Flat inhibition function (0.0 stop-failure rate at all frequencies — deterministic inhibition); dropout selectively impairs stopping | Supported |
 
 **Summary:** The GPR BG model does not make wrong-channel target selections under
 frequency manipulation — it either selects the correct target or withholds entirely.

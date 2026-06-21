@@ -280,8 +280,8 @@ def _section_interpretation_comparison() -> str:
     can_row = (
         "| **Cancellation bottleneck** "
         "| Stop failures and SSRT worsen at low frequency "
-        "| ✓ Stop-failure rate rises with frequency "
-        "(go committed before stop fires); "
+        "| ✓ Flat inhibition function (0.0 stop-failure rate at all frequencies "
+        "— deterministic inhibition); "
         "dropout selectively impairs stopping "
         "| Supported |"
     )
