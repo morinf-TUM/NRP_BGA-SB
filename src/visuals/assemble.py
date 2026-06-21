@@ -100,6 +100,7 @@ def build_hero(clip_paths: list[Path], output_path: Path) -> Path:
         str(output_path),
     ]
     result = subprocess.run(args, capture_output=True, text=True)
+    manifest_path.unlink(missing_ok=True)   # ephemeral; clean up after ffmpeg
     if result.returncode != 0:
         raise RuntimeError(
             f"ffmpeg concat failed (exit {result.returncode}):\n{result.stderr}"

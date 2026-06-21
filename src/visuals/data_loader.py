@@ -1,3 +1,5 @@
+# visuals/data_loader.py
+"""Thin wrappers that load each result JSON from results/ into a list[dict]."""
 from __future__ import annotations
 
 import json
