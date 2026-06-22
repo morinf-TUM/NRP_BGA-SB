@@ -30,3 +30,4 @@ notebooks/*.html
 
 # Generated visual outputs
 deprecated_toy_prototype_visuals/output/
+nrp/run/
