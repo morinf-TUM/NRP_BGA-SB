@@ -10,9 +10,9 @@ import os
 
 from nrp_core.engines.python_json import EngineScript
 
+from nrp.serde import decision_to_dict, evidence_from_dict
 from nrp_bga_sb.bg_model import BGAdapter, BGModelConfig
 from nrp_bga_sb.schemas import TrialLog
-from nrp.serde import evidence_from_dict, decision_to_dict
 
 
 class Script(EngineScript):

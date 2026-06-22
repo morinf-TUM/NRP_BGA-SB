@@ -1,9 +1,12 @@
-from nrp_bga_sb.schemas import ActionEvidence, BGDecision, MotorCommand
 from nrp.serde import (
-    evidence_to_dict, evidence_from_dict,
-    decision_to_dict, decision_from_dict,
-    motor_to_dict, motor_from_dict,
+    decision_from_dict,
+    decision_to_dict,
+    evidence_from_dict,
+    evidence_to_dict,
+    motor_from_dict,
+    motor_to_dict,
 )
+from nrp_bga_sb.schemas import ActionEvidence, BGDecision, MotorCommand
 
 
 def test_evidence_roundtrip():

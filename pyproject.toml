@@ -24,6 +24,12 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# nrp-core TF API mandates `from nrp_core import *` and
+# `from nrp_core.data.nrp_json import *`; see examples/tf_exchange in nrp-core.
+# Replacing these with explicit imports would break the documented pattern.
+"nrp/tfs/*.py" = ["F403", "F405"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not opensim and not nrp'"

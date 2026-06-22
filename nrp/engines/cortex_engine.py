@@ -7,9 +7,9 @@ import os
 
 from nrp_core.engines.python_json import EngineScript
 
+from nrp.serde import evidence_to_dict
 from nrp_bga_sb.cortex import CortexConfig, CortexEvidenceGenerator
 from nrp_bga_sb.schemas import TrialLog
-from nrp.serde import evidence_to_dict
 
 
 class Script(EngineScript):

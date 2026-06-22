@@ -5,8 +5,8 @@ from the commitment engine) without change."""
 
 from nrp_core.engines.python_json import EngineScript
 
-from nrp_bga_sb.thalamus import ThalamusConfig, ThalamusGate
 from nrp.serde import decision_from_dict, motor_to_dict
+from nrp_bga_sb.thalamus import ThalamusConfig, ThalamusGate
 
 
 class Script(EngineScript):
