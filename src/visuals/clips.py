@@ -3,6 +3,10 @@
 
 Each writer generates numbered PNGs in a directory. dry_run=True returns
 the expected frame count without writing any files (used for smoke checks).
+
+Clips 1 (threshold) and 2 (cerebellum) use MuJoCo EGL for 3D arm rendering
+with PIL text/glow-arc overlays.  Clips 3 (perturbation) and 4 (interpretations)
+use matplotlib for chart-based content — no arm model required.
 """
 from __future__ import annotations
 
@@ -13,7 +17,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
+from visuals.arm_renderer import ArmRenderer, REST_POSITION, sim_to_screen
 from visuals.style import (
     DARK_THEME,
     FIG_SIZE_1080P,
@@ -22,18 +28,25 @@ from visuals.style import (
     apply_theme,
 )
 
-FPS = 24
-_BG = "#0d1117"     # figure background colour
-_FG = "#e6edf3"     # text and axis colour
+FPS  = 24
+_BG  = "#0d1117"    # figure background colour (matplotlib clips)
+_FG  = "#e6edf3"    # text and axis colour
 
-# 2-link planar arm model: shoulder fixed at (0, -0.1);
-# each link is 0.6 units → max reach 1.2, target at (0, 1.0) at distance 1.1.
-_SHOULDER = (0.0, -0.1)
-_ARM_L1   = 0.6
-_ARM_L2   = 0.6
+# PIL helpers (used by arm-based clips)
+_PIL_FONT = "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf"
+_W, _H = 1920, 1080
 
 
-# --- Internal helpers ---
+def _pil_font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(_PIL_FONT, size)
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+# --- Matplotlib helpers (used by chart-based clips) ---
 
 def _new_dark_fig() -> tuple[plt.Figure, plt.Axes]:
     """Return a 1080p figure + single axes with the dark theme applied."""
@@ -51,23 +64,9 @@ def _save_frame(fig: plt.Figure, frames_dir: Path, index: int) -> None:
     plt.close(fig)
 
 
-def _draw_glow_arc(ax: plt.Axes,
-                   xs: list[float],
-                   ys: list[float],
-                   color: str,
-                   alpha: float = 1.0) -> None:
-    """Draw a trajectory arc with a soft bloom/glow effect.
-
-    Three passes: wide+faint outer glow, medium mid-glow, sharp core line.
-    """
-    for lw, a in [(10, 0.06 * alpha), (5, 0.14 * alpha), (1.5, alpha)]:
-        ax.plot(xs, ys, color=color, linewidth=lw, alpha=a,
-                solid_capstyle="round")
-
-
 def _title_card_frames(title_text: str, frames_dir: Path | None,
                        n_frames: int, dry_run: bool, start_index: int) -> int:
-    """Write a full-screen title-card block and return its frame count."""
+    """Write a full-screen matplotlib title-card block; return frame count."""
     if dry_run:
         return n_frames
     for i in range(n_frames):
@@ -75,7 +74,7 @@ def _title_card_frames(title_text: str, frames_dir: Path | None,
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis("off")
-        alpha = min(1.0, i / max(1, FPS * 0.5))   # 0.5 s fade-in
+        alpha = min(1.0, i / max(1, FPS * 0.5))
         ax.text(0.5, 0.5, title_text, color=_FG, fontsize=24,
                 ha="center", va="center", alpha=alpha,
                 transform=ax.transAxes, fontweight="bold", wrap=True)
@@ -83,49 +82,35 @@ def _title_card_frames(title_text: str, frames_dir: Path | None,
     return n_frames
 
 
-# --- Arm model helpers ---
+# --- PIL title card (used for arm-based clips) ---
 
-def _compute_elbow(endpoint_xy: list[float]) -> tuple[float, float]:
-    """Return elbow position for shoulder fixed at _SHOULDER (elbow-left convention).
-
-    Uses the law of cosines at the shoulder. Adding alpha to phi gives the
-    CCW (left) elbow solution, which keeps the elbow to the left for an upward reach.
-    """
-    sx, sy = _SHOULDER
-    ex, ey = endpoint_xy
-    dx, dy = ex - sx, ey - sy
-    d = float(np.sqrt(dx * dx + dy * dy))
-    # Clamp to the reachable band so the formula stays numerically stable.
-    d = float(np.clip(d, abs(_ARM_L1 - _ARM_L2) + 0.001, _ARM_L1 + _ARM_L2 - 0.001))
-    cos_alpha = (d * d + _ARM_L1 * _ARM_L1 - _ARM_L2 * _ARM_L2) / (2.0 * d * _ARM_L1)
-    alpha = float(np.arccos(float(np.clip(cos_alpha, -1.0, 1.0))))
-    phi = float(np.arctan2(dy, dx))
-    # elbow-right: subtract alpha from phi so the elbow sits to the right for
-    # an upward reach, matching the natural frontal-plane pose of a right arm.
-    return (sx + _ARM_L1 * np.cos(phi - alpha),
-            sy + _ARM_L1 * np.sin(phi - alpha))
-
-
-def _draw_arm(ax: plt.Axes, endpoint_xy: list[float],
-              color: str, alpha: float = 1.0) -> None:
-    """Draw a two-link planar arm (shoulder → elbow → hand) at the given endpoint."""
-    sx, sy = _SHOULDER
-    elbow_x, elbow_y = _compute_elbow(endpoint_xy)
-    ex, ey = endpoint_xy
-    ax.plot([sx, elbow_x], [sy, elbow_y],
-            color=color, linewidth=8, solid_capstyle="round", alpha=alpha, zorder=3)
-    ax.plot([elbow_x, ex], [elbow_y, ey],
-            color=color, linewidth=6, solid_capstyle="round", alpha=alpha, zorder=3)
-    ax.scatter([sx], [sy], color=color, s=140, zorder=5, alpha=alpha)
-    ax.scatter([elbow_x], [elbow_y], color=color, s=100, zorder=5, alpha=alpha)
-    ax.scatter([ex], [ey], color=color, s=160, zorder=6, alpha=alpha)
+def _pil_title_card_frames(
+    title_text: str,
+    frames_dir: Path,
+    n_frames: int,
+    start_index: int,
+) -> int:
+    """Write PIL dark title-card frames with fade-in; return frame count."""
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(n_frames):
+        alpha = min(1.0, i / max(1, FPS * 0.5))
+        rv = int(230 * alpha); gv = int(237 * alpha); bv = int(243 * alpha)
+        img  = Image.new("RGB", (_W, _H), (13, 17, 23))
+        draw = ImageDraw.Draw(img)
+        draw.multiline_text(
+            (_W // 2, _H // 2), title_text,
+            fill=(rv, gv, bv), font=_pil_font(44),
+            anchor="mm", align="center",
+        )
+        img.save(frames_dir / f"{start_index + i:04d}.png")
+    return n_frames
 
 
-# --- Clip 1: Frequency threshold ---
+# --- Clip 1: Frequency threshold (MuJoCo arm + PIL) ---
 
-_THRESHOLD_FRAMES_PER_FREQ = 72    # 3 s per frequency
-_THRESHOLD_TITLE_FRAMES    = 48    # 2 s title card
-_THRESHOLD_CAPTION_FRAMES  = 48    # 2 s final caption
+_THRESHOLD_FRAMES_PER_FREQ = 72    # 3 s per frequency: 12 hold + 48 arc + 12 result
+_THRESHOLD_TITLE_FRAMES    = 48    # 2 s intro title card
+_THRESHOLD_CAPTION_FRAMES  = 48    # 2 s closing caption
 
 
 def write_threshold_frames(
@@ -133,108 +118,120 @@ def write_threshold_frames(
     frames_dir: Path | None,
     dry_run: bool = False,
 ) -> int:
-    """Animate arm attempts at 5→80 Hz; MISS (5 Hz) then HIT (≥10 Hz)."""
+    """Animate 3D arm at 5→80 Hz; MISS (5 Hz) then HIT (≥10 Hz)."""
     total = (_THRESHOLD_TITLE_FRAMES
              + len(trials) * _THRESHOLD_FRAMES_PER_FREQ
              + _THRESHOLD_CAPTION_FRAMES)
     if dry_run:
         return total
 
+    hold   = FPS // 2    # 12 frames: arm at ready pose
+    arc_f  = FPS * 2     # 48 frames: arm moves through trajectory
+    result = FPS // 2    # 12 frames: result label displayed
+
+    target_screen = sim_to_screen(0.0, 1.0)   # pixel coords of the target
+
     idx = 0
-    idx += _title_card_frames(
+    idx += _pil_title_card_frames(
         "BG update frequency governs action commitment",
-        frames_dir, _THRESHOLD_TITLE_FRAMES, dry_run=False, start_index=idx,
+        frames_dir, _THRESHOLD_TITLE_FRAMES, idx,
     )
 
-    target_x, target_y = 0.0, 1.0
-    hold   = FPS // 2      # 0.5 s: arm at rest
-    arc_f  = FPS * 2       # 2.0 s: arm moves through trajectory
-    result = FPS // 2      # 0.5 s: result label hold
-    # hold + arc_f + result = 12 + 48 + 12 = 72 = _THRESHOLD_FRAMES_PER_FREQ
+    renderer = ArmRenderer()
+    try:
+        for trial in trials:
+            freq       = trial["frequency_hz"]
+            color_hex  = FREQ_COLORS.get(int(freq), "#e6edf3")
+            cr, cg, cb = _hex_to_rgb(color_hex)
+            color_rgba = (cr / 255, cg / 255, cb / 255, 1.0)
+            hit        = not trial["gate_closed"]
+            positions  = trial["positions_xy"]
+            start_pos  = positions[0]
 
-    for trial in trials:
-        freq      = trial["frequency_hz"]
-        color     = FREQ_COLORS.get(int(freq), "#e6edf3")
-        hit       = not trial["gate_closed"]
-        positions = trial["positions_xy"]
-        start_pos = positions[0]   # always (0.0, 0.0)
+            # Strip pre-onset stationary section so the arc shows only movement.
+            moving   = [i for i, p in enumerate(positions)
+                        if abs(p[0] - start_pos[0]) > 0.001
+                        or abs(p[1] - start_pos[1]) > 0.001]
+            anim_pos = positions[moving[0]:] if moving else positions
 
-        # Strip the pre-onset stationary section so the arc animation shows
-        # only actual movement (avoids arm stuck at bottom for most of the clip).
-        moving = [i for i, p in enumerate(positions)
-                  if abs(p[0] - start_pos[0]) > 0.001 or abs(p[1] - start_pos[1]) > 0.001]
-        anim_pos = positions[moving[0]:] if moving else positions
+            freq_label = f"{int(freq)} Hz"
+            lbl_pos    = (1100, 75)    # right-panel text anchor
 
-        def _base(ax_: plt.Axes) -> None:
-            ax_.set_xlim(-1.0, 1.0)
-            ax_.set_ylim(-0.3, 1.4)
-            ax_.axis("off")
-            ax_.scatter([target_x], [target_y], color="#e6edf3", s=200, zorder=5)
-            ax_.text(0.05, 0.95, f"{int(freq)} Hz", color=color, fontsize=20,
-                     fontweight="bold", transform=ax_.transAxes, va="top")
+            # --- Hold: natural ready pose ---
+            for _ in range(hold):
+                pixels = renderer.render_raw(REST_POSITION, color_rgba)
+                renderer.save_frame(pixels, frames_dir, idx,
+                                    labels=[(lbl_pos, freq_label, 80, color_hex)])
+                idx += 1
 
-        # Hold: arm at rest position
-        for _ in range(hold):
-            fig, ax = _new_dark_fig()
-            _base(ax)
-            _draw_arm(ax, start_pos, color)
-            _save_frame(fig, frames_dir, idx)
+            # --- Arc: arm animates through trajectory ---
+            for fi in range(arc_f):
+                if hit:
+                    reveal      = max(2, int((fi + 1) / arc_f * len(anim_pos)))
+                    current_pos = anim_pos[reveal - 1]
+                    arc_pts     = [sim_to_screen(p[0], p[1])
+                                   for p in anim_pos[:reveal]]
+                else:
+                    current_pos = REST_POSITION
+                    arc_pts     = None
+
+                pixels = renderer.render_raw(current_pos, color_rgba)
+                labels = [(lbl_pos, freq_label, 80, color_hex)]
+                if not hit:
+                    # Blocked-gate marker: "X" at the target position
+                    labels.append(
+                        ((target_screen[0] - 18, target_screen[1] - 55),
+                         "X", 72, "#ef4444"),
+                    )
+                renderer.save_frame(pixels, frames_dir, idx,
+                                    labels=labels,
+                                    arc_pts=arc_pts, arc_color=color_hex)
+                idx += 1
+
+            # --- Result label ---
+            label_text  = "HIT"  if hit else "MISS"
+            label_color = "#22c55e" if hit else "#ef4444"
+            final_pos   = anim_pos[-1] if hit else REST_POSITION
+            full_arc    = ([sim_to_screen(p[0], p[1]) for p in anim_pos]
+                           if hit else None)
+            for _ in range(result):
+                pixels = renderer.render_raw(final_pos, color_rgba)
+                renderer.save_frame(pixels, frames_dir, idx,
+                                    labels=[
+                                        (lbl_pos, freq_label, 80, color_hex),
+                                        ((1100, 185), label_text, 64, label_color),
+                                    ],
+                                    arc_pts=full_arc, arc_color=color_hex,
+                                    arc_alpha=0.7)
+                idx += 1
+
+        # --- Closing caption card ---
+        caption = "Below 10 Hz the BG samples only\nneutral cortical evidence"
+        neutral_rgba = (0.35, 0.65, 1.0, 1.0)
+        for fi in range(_THRESHOLD_CAPTION_FRAMES):
+            fade   = min(1.0, fi / (FPS * 0.5))
+            cfade  = int(230 * fade)
+            pixels = renderer.render_raw(REST_POSITION, neutral_rgba)
+            img    = Image.fromarray(pixels, "RGB")
+            draw   = ImageDraw.Draw(img)
+            draw.multiline_text(
+                (_W // 2, _H - 150), caption,
+                fill=(cfade, cfade, int(243 * fade)),
+                font=_pil_font(40), anchor="mm", align="center",
+            )
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            img.save(frames_dir / f"{idx:04d}.png")
             idx += 1
-
-        # Arc draw: arm moves through the movement portion of the trajectory
-        for i in range(arc_f):
-            fig, ax = _new_dark_fig()
-            _base(ax)
-            if hit:
-                reveal      = max(2, int((i + 1) / arc_f * len(anim_pos)))
-                current_pos = anim_pos[reveal - 1]
-                xs = [p[0] for p in anim_pos[:reveal]]
-                ys = [p[1] for p in anim_pos[:reveal]]
-                _draw_glow_arc(ax, xs, ys, color, alpha=0.25)
-                _draw_arm(ax, current_pos, color)
-            else:
-                _draw_arm(ax, start_pos, color)
-            _save_frame(fig, frames_dir, idx)
-            idx += 1
-
-        # Result label
-        label       = "✓ HIT" if hit else "✗ MISS"
-        label_color = "#22c55e" if hit else "#ef4444"
-        final_pos   = anim_pos[-1] if hit else start_pos
-        for _ in range(result):
-            fig, ax = _new_dark_fig()
-            _base(ax)
-            if hit:
-                xs = [p[0] for p in anim_pos]
-                ys = [p[1] for p in anim_pos]
-                _draw_glow_arc(ax, xs, ys, color, alpha=0.2)
-            _draw_arm(ax, final_pos, color)
-            ax.text(0.5, 0.08, label, color=label_color, fontsize=22,
-                    fontweight="bold", ha="center", transform=ax.transAxes)
-            _save_frame(fig, frames_dir, idx)
-            idx += 1
-
-    # Caption card
-    for i in range(_THRESHOLD_CAPTION_FRAMES):
-        fig, ax = _new_dark_fig()
-        ax.set_xlim(-1.0, 1.0)
-        ax.set_ylim(-0.3, 1.4)
-        ax.axis("off")
-        fade = min(1.0, i / (FPS * 0.5))
-        ax.text(0.5, 0.5,
-                "Below 10 Hz the BG samples only\nneutral cortical evidence",
-                color=_FG, fontsize=18, ha="center", va="center",
-                transform=ax.transAxes, alpha=fade)
-        _save_frame(fig, frames_dir, idx)
-        idx += 1
+    finally:
+        renderer.close()
 
     return total
 
 
-# --- Clip 2: Cerebellar adaptation ---
+# --- Clip 2: Cerebellar adaptation (MuJoCo arm + PIL) ---
 
 _CEREB_TITLE_FRAMES     = 48    # 2 s
-_CEREB_FRAMES_PER_TRIAL = 20    # ~8.3 ms wall-clock per trial at 24 fps
+_CEREB_FRAMES_PER_TRIAL = 20    # ~0.83 s per trial at 24 fps
 
 
 def write_cerebellum_frames(
@@ -242,80 +239,81 @@ def write_cerebellum_frames(
     frames_dir: Path | None,
     dry_run: bool = False,
 ) -> int:
-    """Animate 30 go-trials showing arc rotating toward target as theta_hat builds."""
+    """Animate 30 go-trials showing 3D arm arc rotating toward target as θ̂ builds."""
     go_trials = [t for t in trials if t["is_go"]]
     total = _CEREB_TITLE_FRAMES + len(go_trials) * _CEREB_FRAMES_PER_TRIAL
     if dry_run:
         return total
 
+    arc_f  = int(_CEREB_FRAMES_PER_TRIAL * 0.7)    # 14 frames: arc draws
+    hold_f = _CEREB_FRAMES_PER_TRIAL - arc_f         # 6 frames: hold at endpoint
+
+    n   = len(go_trials)
     idx = 0
-    idx += _title_card_frames(
+    idx += _pil_title_card_frames(
         "Cerebellum corrects visuomotor rotation across trials",
-        frames_dir, _CEREB_TITLE_FRAMES, dry_run=False, start_index=idx,
+        frames_dir, _CEREB_TITLE_FRAMES, idx,
     )
 
-    target_x, target_y = 0.0, 1.0
-    n = len(go_trials)
+    renderer = ArmRenderer()
+    try:
+        for ti, trial in enumerate(go_trials):
+            frac  = ti / max(1, n - 1)
+            # Colour fades red → green as learning progresses.
+            rv = int(239 * (1 - frac) + 34 * frac)
+            gv = int(68  * (1 - frac) + 197 * frac)
+            bv = int(68  * (1 - frac) + 94  * frac)
+            color_rgba = (rv / 255, gv / 255, bv / 255, 1.0)
+            color_hex  = f"#{rv:02x}{gv:02x}{bv:02x}"
 
-    for ti, trial in enumerate(go_trials):
-        frac  = ti / max(1, n - 1)        # 0.0 → 1.0 across trials
-        r = int(239 * (1 - frac) + 34 * frac)
-        g = int(68  * (1 - frac) + 197 * frac)
-        b = int(68  * (1 - frac) + 94  * frac)
-        color     = f"#{r:02x}{g:02x}{b:02x}"
-        positions = trial["positions_xy"]
-        theta_deg = trial["theta_hat"] * 180.0 / np.pi
+            positions  = trial["positions_xy"]
+            theta_deg  = trial["theta_hat"] * 180.0 / np.pi
+            start_pos  = positions[0]
 
-        arc_f  = int(_CEREB_FRAMES_PER_TRIAL * 0.7)    # 70% drawing arc
-        hold_f = _CEREB_FRAMES_PER_TRIAL - arc_f        # 30% hold at endpoint
+            moving   = [i for i, p in enumerate(positions)
+                        if abs(p[0] - start_pos[0]) > 0.001
+                        or abs(p[1] - start_pos[1]) > 0.001]
+            anim_pos = positions[moving[0]:] if moving else positions
 
-        # Strip pre-onset stationary frames so the animation shows only movement.
-        start_pos = positions[0]
-        moving = [i for i, p in enumerate(positions)
-                  if abs(p[0] - start_pos[0]) > 0.001 or abs(p[1] - start_pos[1]) > 0.001]
-        anim_pos = positions[moving[0]:] if moving else positions
+            trial_lbl = f"Trial {ti + 1}"
+            theta_lbl = f"adapt: {theta_deg:.1f} deg"
 
-        for i in range(arc_f):
-            fig, ax = _new_dark_fig()
-            ax.set_xlim(-1.0, 1.0)
-            ax.set_ylim(-0.3, 1.4)
-            ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=180, zorder=5)
-            reveal      = max(2, int((i + 1) / arc_f * len(anim_pos)))
-            current_pos = anim_pos[reveal - 1]
-            xs = [p[0] for p in anim_pos[:reveal]]
-            ys = [p[1] for p in anim_pos[:reveal]]
-            _draw_glow_arc(ax, xs, ys, color, alpha=0.25)
-            _draw_arm(ax, current_pos, color)
-            ax.text(0.05, 0.95, f"Trial {ti + 1}", color=_FG, fontsize=16,
-                    fontweight="bold", transform=ax.transAxes, va="top")
-            ax.text(0.05, 0.88, f"θ̂ = {theta_deg:.1f}°", color="#a855f7",
-                    fontsize=13, transform=ax.transAxes, va="top")
-            _save_frame(fig, frames_dir, idx)
-            idx += 1
+            # --- Arc draw ---
+            for fi in range(arc_f):
+                reveal      = max(2, int((fi + 1) / arc_f * len(anim_pos)))
+                current_pos = anim_pos[reveal - 1]
+                arc_pts     = [sim_to_screen(p[0], p[1])
+                               for p in anim_pos[:reveal]]
 
-        final_pos = anim_pos[-1]
-        xs_full   = [p[0] for p in anim_pos]
-        ys_full   = [p[1] for p in anim_pos]
-        for _ in range(hold_f):
-            fig, ax = _new_dark_fig()
-            ax.set_xlim(-1.0, 1.0)
-            ax.set_ylim(-0.3, 1.4)
-            ax.axis("off")
-            ax.scatter([target_x], [target_y], color="#e6edf3", s=180, zorder=5)
-            _draw_glow_arc(ax, xs_full, ys_full, color, alpha=0.2)
-            _draw_arm(ax, final_pos, color, alpha=0.85)
-            ax.text(0.05, 0.95, f"Trial {ti + 1}", color=_FG, fontsize=16,
-                    fontweight="bold", transform=ax.transAxes, va="top")
-            ax.text(0.05, 0.88, f"θ̂ = {theta_deg:.1f}°", color="#a855f7",
-                    fontsize=13, transform=ax.transAxes, va="top")
-            _save_frame(fig, frames_dir, idx)
-            idx += 1
+                pixels = renderer.render_raw(current_pos, color_rgba)
+                renderer.save_frame(pixels, frames_dir, idx,
+                                    labels=[
+                                        ((1100, 75),  trial_lbl, 60, "#e6edf3"),
+                                        ((1100, 155), theta_lbl, 44, "#a855f7"),
+                                    ],
+                                    arc_pts=arc_pts, arc_color=color_hex)
+                idx += 1
+
+            # --- Hold at final endpoint ---
+            final_pos = anim_pos[-1]
+            full_arc  = [sim_to_screen(p[0], p[1]) for p in anim_pos]
+            for _ in range(hold_f):
+                pixels = renderer.render_raw(final_pos, color_rgba)
+                renderer.save_frame(pixels, frames_dir, idx,
+                                    labels=[
+                                        ((1100, 75),  trial_lbl, 60, "#e6edf3"),
+                                        ((1100, 155), theta_lbl, 44, "#a855f7"),
+                                    ],
+                                    arc_pts=full_arc, arc_color=color_hex,
+                                    arc_alpha=0.7)
+                idx += 1
+    finally:
+        renderer.close()
 
     return total
 
 
-# --- Clip 3: Perturbation decomposition ---
+# --- Clip 3: Perturbation decomposition (matplotlib chart) ---
 
 _PERT_TITLE_FRAMES  = 48
 _PERT_DRAW_FRAMES   = 60    # per cell line draw
@@ -380,7 +378,6 @@ def write_perturbation_frames(
             for spine in ax.spines.values():
                 spine.set_edgecolor("#30363d")
 
-            # Draw full lines for completed cells
             if ci < reveal_cell:
                 ax.plot(vals, rts_norm, "o-", color="#3b82f6", linewidth=2,
                         label="RT (norm.)")
@@ -392,7 +389,6 @@ def write_perturbation_frames(
                 ax.plot(vals[:n], ch[:n], "s--", color="#f59e0b", linewidth=2)
 
             if ci in label_cells:
-                # Both urgency and cancellation accounts are "supported" per §11
                 v_color = "#22c55e"
                 ax.text(0.97, 0.97, verdict, color=v_color, fontsize=9,
                         fontweight="bold", transform=ax.transAxes,
@@ -415,7 +411,6 @@ def write_perturbation_frames(
             _save_frame(fig, frames_dir, idx)
             idx += 1
 
-    # Final hold
     for fi in range(_PERT_HOLD_FRAMES):
         apply_theme(DARK_THEME)
         fig, axes = plt.subplots(2, 2, figsize=FIG_SIZE_1080P)
@@ -427,10 +422,10 @@ def write_perturbation_frames(
     return total
 
 
-# --- Clip 4: Interpretation verdict ---
+# --- Clip 4: Interpretation verdict (matplotlib) ---
 
 _INTERP_TITLE_FRAMES = 48
-_INTERP_ROW_FRAMES   = 72     # per row reveal
+_INTERP_ROW_FRAMES   = 72
 _INTERP_HOLD_FRAMES  = 96
 
 _INTERP_ROWS = [
@@ -521,7 +516,7 @@ def write_interpretations_frames(
     return total
 
 
-# --- Bridge / title cards ---
+# --- Bridge / title cards (matplotlib) ---
 
 def write_bridge_frames(
     text: str,
