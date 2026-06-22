@@ -27,6 +27,7 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-m 'not opensim and not nrp'"
+pythonpath = ["."]
 markers = [
     "opensim: requires Docker + the nrp-bga-opensim image (deselected by default)",
     "nrp: requires the nrp-core runtime / NRPCoreSim (deselected by default)",
