@@ -840,8 +840,11 @@ def run_trial(config: dict, params: dict, run_dir: Path) -> list[dict]:
     # -d REPO is REQUIRED: NRPCoreSim cwd's to the config's directory, so the
     # repo-root-relative PythonFileName/FileName paths only resolve with an
     # explicit experiment root (verified Phase 0).
+    # Pass the config path ABSOLUTE (not relative_to(REPO)): run_dir is often a
+    # pytest tmp_path OUTSIDE the repo, where relative_to(REPO) raises ValueError.
+    # NRPCoreSim resolves an absolute -c regardless of the -d-set CWD (verified Task 1.6).
     proc = subprocess.run(
-        ["NRPCoreSim", "-c", str(config_path.relative_to(REPO)), "-d", str(REPO)],
+        ["NRPCoreSim", "-c", str(config_path), "-d", str(REPO)],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
     )
     if proc.returncode != 0:
