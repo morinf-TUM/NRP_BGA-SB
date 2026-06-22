@@ -21,7 +21,7 @@ Expected finding (Phase 3 null result now resolved by Phase 4 time-varying corte
 Also includes a "baseline" condition where all knobs are at 160 Hz.
 
 Output:
-  results/ablation_frequency_v2.json — list of condition result dicts
+  deprecated_toy_prototype_results/ablation_frequency_v2.json — list of condition result dicts
   stdout                             — formatted table
 """
 
@@ -62,7 +62,7 @@ RISE_TIME_MS: float = 200.0
 PEAK_SALIENCE: float = 0.85
 ACCUMULATION_MS: float = 200.0
 
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+RESULTS_DIR = Path(__file__).parent.parent / "deprecated_toy_prototype_results"
 RESULTS_PATH = RESULTS_DIR / "ablation_frequency_v2.json"
 
 

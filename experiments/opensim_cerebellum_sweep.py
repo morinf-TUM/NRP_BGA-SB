@@ -172,7 +172,7 @@ def main() -> None:
                 perturbation_deg=args.perturbation_deg,
             ))
 
-    out = Path("results/opensim_cerebellum_results.json")
+    out = Path("deprecated_toy_prototype_results/opensim_cerebellum_results.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, indent=2))
     _print_report(results)

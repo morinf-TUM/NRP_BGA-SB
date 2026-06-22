@@ -63,8 +63,8 @@ def test_total_conditions_is_900():
 
 
 def test_results_path_in_results_dir():
-    # results/ directory must be a sibling of experiments/, not data/
-    assert _exp.RESULTS_PATH.parent.name == "results"
+    # deprecated_toy_prototype_results/ directory must be a sibling of experiments/, not data/
+    assert _exp.RESULTS_PATH.parent.name == "deprecated_toy_prototype_results"
     assert _exp.RESULTS_PATH.name == "frequency_sweep_results.json"
 
 

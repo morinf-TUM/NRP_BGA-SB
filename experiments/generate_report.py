@@ -1,7 +1,7 @@
 # experiments/generate_report.py
 """Phase 12: generate the minimum publishable prototype report.
 
-Reads all result JSONs from results/ and writes docs/prototype_report.md.
+Reads all result JSONs from deprecated_toy_prototype_results/ and writes docs/prototype_report.md.
 
 Run:
     python experiments/generate_report.py
@@ -16,7 +16,7 @@ from pathlib import Path
 # --- JSON loaders ---
 
 def _load(name: str) -> list | dict:
-    path = Path("results") / name
+    path = Path("deprecated_toy_prototype_results") / name
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -372,7 +372,7 @@ def build_report() -> str:
         "## Codebase and reproducibility\n\n"
         "- All experiments are deterministic (fixed seeds, `noise_std=0.0` for BG model "
         "except two-choice paradigm).\n"
-        "- Result JSONs committed alongside source code in `results/`.\n"
+        "- Result JSONs committed alongside source code in `deprecated_toy_prototype_results/`.\n"
         "- Docker-gated OpenSim tests require `nrp-bga-opensim:4.6` image "
         "(`pytest -m opensim`).\n"
         "- Host test suite: `python -m pytest tests/ -x -q` — 728+ tests, ruff clean.\n"

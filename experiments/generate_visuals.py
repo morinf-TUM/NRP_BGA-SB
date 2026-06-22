@@ -44,7 +44,7 @@ from visuals.trajectory_gen import (
     generate_threshold_trajectories,
 )
 
-OUTPUT_DIR  = _ROOT / "visuals" / "output"
+OUTPUT_DIR  = _ROOT / "deprecated_toy_prototype_visuals" / "output"
 FRAMES_DIR  = OUTPUT_DIR / "frames"
 FPS         = 24
 

@@ -29,4 +29,4 @@ notebooks/*.html
 *.nrp_env
 
 # Generated visual outputs
-visuals/output/
+deprecated_toy_prototype_visuals/output/

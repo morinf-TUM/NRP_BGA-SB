@@ -105,7 +105,7 @@ def main() -> None:
     client = OpenSimPlantClient(cfg, io_dir=args.io_dir)
     results = [run_opensim_gonogo_condition(f, args.n_trials, client) for f in FREQUENCIES_HZ]
 
-    out = Path("results/opensim_gonogo_sweep.json")
+    out = Path("deprecated_toy_prototype_results/opensim_gonogo_sweep.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(results, indent=2))
     _print_report(results)
