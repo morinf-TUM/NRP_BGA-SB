@@ -18,7 +18,8 @@
   - Engine script: `from nrp_core.engines.python_json import EngineScript`; subclass `Script(EngineScript)` implementing `initialize(self)`, `runLoop(self, timestep_ns)`, `shutdown(self)`, optional `reset(self)`. Inside: `self._registerDataPack(name)`, `self._setDataPack(name, dict)`, `self._getDataPack(name)`, and `self._time_ns` (engine logical time, nanoseconds).
   - TF: `from nrp_core import *` and `from nrp_core.data.nrp_json import *`; decorate with one or more `@EngineDataPack(keyword=<argname>, id=DataPackIdentifier(<datapack_name>, <engine_name>))` and one `@TransceiverFunction(<target_engine_name>)`; build outputs as `JsonDataPack(<name>, <target_engine>)`, populate `.data[...]`, return a `list`.
   - Config JSON keys: top-level `SimulationName`, `SimulationDescription`, `SimulationTimeout` (seconds), `EngineConfigs` (each: `EngineType` `"python_json"`/`"py_sim"`, `EngineName`, `EngineTimestep` in **seconds**, `PythonFileName`), `DataPackProcessingFunctions` (each: `Name`, `FileName`).
-  - Run: `NRPCoreSim -c <config.json>`, invoked with cwd = repo root so the relative `PythonFileName`/`FileName` paths resolve. The nrp environment must be sourced first: `source $HOME/.local/nrp/bin/.nrp_env`.
+  - Run: `NRPCoreSim -c <config.json> -d <repo_root>`, invoked with cwd = repo root. **The `-d <repo_root>` flag is REQUIRED** (verified in Phase 0): NRPCoreSim changes its internal working directory to the config file's directory, so without `-d` the repo-root-relative `PythonFileName`/`FileName` paths do not resolve. The nrp environment must be sourced first: `source $HOME/.local/nrp/bin/.nrp_env`.
+- **numpy is pinned `>=1.26,<2`** (verified in Phase 0): nrp-core 1.5.1's compiled `nrp_json.so` is built against the NumPy 1.x C-ABI; NumPy 2.x crashes the engine subprocess. Do not raise this ceiling until nrp-core is rebuilt against NumPy 2.x.
 - **FTILoop timestep rule (`§15.4`):** every `EngineTimestep` must be an integer multiple of the smallest one. The frequency set **{5, 10, 20, 40, 80, 160} Hz** over a 1 ms base step (cortex at 1000 Hz) satisfies this; do **not** introduce 120 Hz (it breaks the rule).
 - **Acceptance is categorical, not bit-identical.** The IPC/JSON/process boundary means exact float reproduction across the runtime is not required. Each phase passes when the **categorical empirical signature** survives (e.g. go-success 0.0 at 5 Hz, 1.0 at ≥10 Hz; ablation primary-variable finding). State this in every validation step.
 - **Trial parameters reach engines via an env-pointed JSON file**, not via config-dict access (the latter's per-engine API is unverified). The run harness writes `params.json` and exports `NRP_BGA_TRIAL_PARAMS`; engines read that path in `initialize()`. Logged output path is exported as `NRP_BGA_LOG`.
@@ -836,8 +837,11 @@ def run_trial(config: dict, params: dict, run_dir: Path) -> list[dict]:
     env = dict(os.environ,
                NRP_BGA_TRIAL_PARAMS=str(params_path),
                NRP_BGA_LOG=str(log_path))
+    # -d REPO is REQUIRED: NRPCoreSim cwd's to the config's directory, so the
+    # repo-root-relative PythonFileName/FileName paths only resolve with an
+    # explicit experiment root (verified Phase 0).
     proc = subprocess.run(
-        ["NRPCoreSim", "-c", str(config_path.relative_to(REPO))],
+        ["NRPCoreSim", "-c", str(config_path.relative_to(REPO)), "-d", str(REPO)],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=180,
     )
     if proc.returncode != 0:
