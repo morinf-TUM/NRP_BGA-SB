@@ -24,9 +24,10 @@ class Script(EngineScript):
             task_type="go_nogo", cue_identity=params["cue_identity"],
             cue_onset_time=0.0,
         )
+        # Knob 2: BG internal integration step. Modelled as N solver sub-steps per
+        # emission step -- internal to this engine, NOT an EngineTimestep (§15.4).
+        self._substeps = int(params.get("integration_substeps", 1))
         self._bg = BGAdapter(BGModelConfig())
-        # The TF writes incoming evidence here; register so _getDataPack works
-        # even before the first TF delivery.
         self._registerDataPack("sampled_evidence")
         self._registerDataPack("decision")
 
@@ -38,7 +39,11 @@ class Script(EngineScript):
         if not raw or "channel_salience" not in raw:
             return
         evidence = evidence_from_dict(raw)
-        decision = self._bg(self._trial, evidence)
+        decision = None
+        # Integrate the BG model `_substeps` times before emitting; the last
+        # decision is the emitted one. With substeps=1 behaviour is unchanged.
+        for _ in range(self._substeps):
+            decision = self._bg(self._trial, evidence)
         self._setDataPack("decision", decision_to_dict(decision))
 
     def shutdown(self):
