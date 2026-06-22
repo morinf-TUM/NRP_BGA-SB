@@ -21,6 +21,7 @@ def test_nrpcoresim_runs_python_engine(tmp_path):
         cwd=REPO, env=env, capture_output=True, text=True, timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
+    assert log.exists(), "TF never wrote the log file"
     lines = [json.loads(x) for x in log.read_text().splitlines() if x.strip()]
     assert len(lines) >= 1               # at least one timestep logged
     assert "t_ns" in lines[0]
