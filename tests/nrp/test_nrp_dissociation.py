@@ -26,3 +26,12 @@ def test_fast_sampling_hits_even_with_slow_emission(tmp_path):
     cfg = build_config_sampled(input_sampling_hz=160.0, output_emission_hz=10.0)
     trace = run_trial(cfg, _go(), tmp_path / "fast_sample")
     assert trace_to_outcome(trace)["motor_released"] is True
+
+
+@pytest.mark.nrp
+def test_committed_config_runs_and_releases(tmp_path):
+    from nrp.config_gen import build_config_committed
+    cfg = build_config_committed(input_sampling_hz=160.0, output_emission_hz=160.0,
+                                 commitment_hz=160.0)
+    trace = run_trial(cfg, _go(), tmp_path / "committed")
+    assert trace_to_outcome(trace)["motor_released"] is True

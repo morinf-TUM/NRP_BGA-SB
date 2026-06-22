@@ -26,3 +26,15 @@ def test_build_config_sampled_independent_knobs():
     tf_names = {t["Name"] for t in cfg["DataPackProcessingFunctions"]}
     assert {"cortex_to_sampler", "sampler_to_bg"} <= tf_names
     assert "cortex_to_bg" not in tf_names
+
+
+def test_build_config_committed_three_rates():
+    from nrp.config_gen import build_config_committed
+    cfg = build_config_committed(input_sampling_hz=5.0, output_emission_hz=40.0,
+                                 commitment_hz=10.0)
+    engines = {e["EngineName"]: e for e in cfg["EngineConfigs"]}
+    assert set(engines) == {"cortex", "sampler", "bg", "commitment", "thalamus"}
+    assert engines["commitment"]["EngineTimestep"] == 0.1   # 10 Hz
+    tf_names = {t["Name"] for t in cfg["DataPackProcessingFunctions"]}
+    assert {"bg_to_commitment", "commitment_to_thalamus"} <= tf_names
+    assert "bg_to_thalamus" not in tf_names
