@@ -27,6 +27,9 @@ class Script(EngineScript):
         # Knob 2: BG internal integration step. Modelled as N solver sub-steps per
         # emission step -- internal to this engine, NOT an EngineTimestep (§15.4).
         self._substeps = int(params.get("integration_substeps", 1))
+        if self._substeps < 1:
+            raise ValueError(
+                f"integration_substeps must be >= 1, got {self._substeps}")
         self._bg = BGAdapter(BGModelConfig())
         self._registerDataPack("sampled_evidence")
         self._registerDataPack("decision")
