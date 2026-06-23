@@ -30,8 +30,10 @@ This file is the primary source of truth for project context. It is derived from
   latency/jitter/dropout decomposition, and three-interpretation comparison.  Host
   test suite: 732 tests, ruff clean.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
-- **NRP-core binding complete (go/no-go).** Four-knob frequency model realised on
-  the real NRPCoreSim/FTILoop runtime (`nrp/`); BG-frequency signature and ablation
+- **NRP-core binding complete (go/no-go).** Four-knob frequency model wired (three
+  knobs functionally dissociable; the integration sub-step is configurable but
+  idempotent on the stateless BG solver — see §15.7) on the real
+  NRPCoreSim/FTILoop runtime (`nrp/`); BG-frequency signature and ablation
   boundary reproduced. See §15.7. Legacy pure-Python outputs badged under
   `deprecated_toy_prototype_*`.
 
@@ -337,6 +339,8 @@ single-knob ablation boundary survive the real runtime.
 
 Out of scope of this binding: pysim plant embodiment, paradigms other than
 go/no-go, and perturbation (latency/jitter/dropout/phase-offset) TFs.
+
+**NOTE on knob 2 (integration sub-step) — configurable, not functionally dissociable.** `BGAdapter`/`BGModel.compute` is a stateless steady-state (Jacobi fixed-point) solver: it re-initialises all activations to zero and converges internally on every call, and `BGAdapter.__call__` re-seeds its RNG from the trial seed each call. The BG engine's sub-step loop therefore calls a pure function N times on identical evidence and keeps the last result, so repeated sub-steps are **idempotent** — knob 2 changes nothing in the output under any configuration. It is retained because it is independently *configurable* and exercises the real runtime path, but only three knobs (input sampling, output emission, commitment) are *functionally* dissociable on the current solver. Making the integration sub-step functional would require a stateful/incremental BG integrator (carried activations or per-sub-step evidence fractions) — a science-layer change, out of scope for this binding.
 
 ### 15.8 Verified vs unverified claims
 

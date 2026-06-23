@@ -45,6 +45,10 @@ class Script(EngineScript):
         decision = None
         # Integrate the BG model `_substeps` times before emitting; the last
         # decision is the emitted one. With substeps=1 behaviour is unchanged.
+        # NOTE: BGAdapter is a stateless steady-state solver (re-initialises
+        # activations and re-seeds RNG on every call), so this loop is currently
+        # idempotent — it exercises the runtime path and is ready for a future
+        # stateful/incremental integrator, but does not change the output.
         for _ in range(self._substeps):
             decision = self._bg(self._trial, evidence)
         self._setDataPack("decision", decision_to_dict(decision))
