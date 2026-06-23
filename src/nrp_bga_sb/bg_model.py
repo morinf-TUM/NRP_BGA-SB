@@ -28,6 +28,45 @@ import numpy as np
 
 from nrp_bga_sb.schemas import ActionEvidence, BGDecision, TrialLog
 
+# --- Shared GPR primitives (used by both the converging solver and the stepper) ---
+
+
+def _jacobi_update(saliences, D1, D2, GPe, cfg):
+    """One GPR sweep. STN reads the *previous* GPe (feedback); GPe and GPi read the
+    just-computed STN. This is exactly one iteration of the compute() fixed-point loop."""
+    STN = np.maximum(0.0, saliences - cfg.w_gpe_stn * GPe + cfg.stn_offset)
+    GPe_new = np.maximum(0.0, cfg.w_stn_gpe * STN - cfg.w_d2_gpe * D2 + cfg.gpe_offset)
+    GPi = np.maximum(
+        0.0, cfg.w_stn_gpi * float(np.mean(STN)) - cfg.w_d1_gpi * D1 + cfg.gpi_offset
+    )
+    return STN, GPe_new, GPi
+
+
+def _readout(GPi, cfg):
+    """Thalamus output + winner selection from a GPi vector (settled or not)."""
+    T = np.maximum(0.0, cfg.thal_threshold - GPi)
+    n = len(GPi)
+    if float(np.max(T)) > 0.0:
+        selected = int(np.argmax(T))
+        T_sorted = np.sort(T)[::-1]
+        margin = float(T_sorted[0] - T_sorted[1]) if n >= 2 else float(T_sorted[0])
+        T_winner = float(T_sorted[0])
+    else:
+        selected, margin, T_winner = -1, 0.0, 0.0
+    return selected, margin, T.tolist(), T_winner
+
+
+def selection_latency_s(config, T_winner):
+    """Map thalamus winner output to selection latency (seconds). Inverse
+    proportionality: smaller T_winner (more conflict / less settling) -> longer latency."""
+    if T_winner > 0.0:
+        denominator = T_winner + config.latency_eps
+        latency_ms = config.latency_min_ms + config.latency_scale_ms / denominator
+    else:
+        latency_ms = config.latency_max_ms
+    return latency_ms / 1000.0
+
+
 # --- GPR Model Configuration ---
 
 
@@ -95,6 +134,37 @@ class BGModelConfig:
     latency_max_ms: float = 100.0  # cap applied when no selection is made
 
 
+# --- State and Integrator ---
+
+
+@dataclass
+class BGIntegratorState:
+    """Carried GPR activations plus the readout derived from them. Persists across
+    integration sub-steps within a trial so repeated sub-steps are NOT idempotent."""
+
+    STN: np.ndarray
+    GPe: np.ndarray
+    GPi: np.ndarray
+    selected_channel: int = 0
+    decision_margin: float = 0.0
+    suppression_vector: list[float] = field(default_factory=list)
+    channel_activations: list[float] = field(default_factory=list)
+    T_winner: float = 0.0
+    n_sweeps: int = 0
+
+    @classmethod
+    def initial(cls, n: int, cfg: BGModelConfig | None = None) -> BGIntegratorState:
+        cfg = cfg or BGModelConfig()
+        GPi = np.zeros(n)
+        selected, margin, acts, T_winner = _readout(GPi, cfg)
+        return cls(
+            STN=np.zeros(n), GPe=np.zeros(n), GPi=GPi,
+            selected_channel=selected, decision_margin=margin,
+            suppression_vector=GPi.tolist(), channel_activations=acts,
+            T_winner=T_winner, n_sweeps=0,
+        )
+
+
 # --- GPR Model Core ---
 
 
@@ -158,28 +228,9 @@ class BGModel:
 
         n_iters = 0
         for iteration in range(cfg.max_iters):
-            STN_prev = STN.copy()
-            GPe_prev = GPe.copy()
-            GPi_prev = GPi.copy()
-
-            # STN: cortical salience excites, GPe inhibits (feedback).
-            # stn_offset keeps STN tonically active even at zero cortical input.
-            STN = np.maximum(0.0, saliences - cfg.w_gpe_stn * GPe_prev + cfg.stn_offset)
-
-            # GPe: STN excites, D2 striatum inhibits.
-            GPe = np.maximum(0.0, cfg.w_stn_gpe * STN - cfg.w_d2_gpe * D2 + cfg.gpe_offset)
-
-            # GPi: mean STN provides global blanket suppression; D1 provides channel-
-            # specific inhibition. Using mean (not sum) makes selection scale-invariant
-            # with N so that adding more channels does not shrink salience requirements.
-            GPi = np.maximum(
-                0.0,
-                cfg.w_stn_gpi * float(np.mean(STN)) - cfg.w_d1_gpi * D1 + cfg.gpi_offset,
-            )
-
+            STN_prev, GPe_prev, GPi_prev = STN.copy(), GPe.copy(), GPi.copy()
+            STN, GPe, GPi = _jacobi_update(saliences, D1, D2, GPe_prev, cfg)
             n_iters = iteration + 1
-
-            # Convergence: all nuclei activations stable within tolerance.
             if (
                 float(np.max(np.abs(STN - STN_prev))) < cfg.tol
                 and float(np.max(np.abs(GPe - GPe_prev))) < cfg.tol
@@ -187,32 +238,40 @@ class BGModel:
             ):
                 break
 
-        # --- Thalamus output ---
-        # Trigger: GPi suppresses thalamus below thal_threshold.
-        # Why: selection is implemented by disinhibition — the channel whose GPi is
-        #      driven below threshold gains positive thalamic output.
-        # Outcome: T_i > 0 identifies selected channels; argmax picks the winner.
-        T = np.maximum(0.0, cfg.thal_threshold - GPi)
-
-        # --- Winner selection ---
-        if float(np.max(T)) > 0.0:
-            selected = int(np.argmax(T))
-            T_sorted = np.sort(T)[::-1]
-            margin = float(T_sorted[0] - T_sorted[1]) if n >= 2 else float(T_sorted[0])
-            T_winner = float(T_sorted[0])
-        else:
-            selected = -1
-            margin = 0.0
-            T_winner = 0.0
-
+        selected, margin, activations, T_winner = _readout(GPi, cfg)
         return {
             "selected_channel": selected,
             "decision_margin": margin,
             "suppression_vector": GPi.tolist(),
-            "channel_activations": T.tolist(),
+            "channel_activations": activations,
             "n_iters": n_iters,
             "T_winner": T_winner,
         }
+
+    def step(self, state, saliences, n_sweeps=1):
+        """Advance the carried integrator by n_sweeps GPR sweeps on `saliences`,
+        reading out the current (possibly unsettled) state. With enough sweeps this
+        converges to the same fixed point as compute().
+
+        Noise-free path: unlike compute(rng=...), step() takes no rng and does not
+        apply config.noise_std. The stateful integrator is used with the default
+        noise-free config; a noisy carried trajectory is out of scope here."""
+        if n_sweeps < 1:
+            raise ValueError(f"n_sweeps must be >= 1, got {n_sweeps}")
+        cfg = self.config
+        saliences = np.asarray(saliences, dtype=float)
+        D1 = np.maximum(0.0, saliences - cfg.theta_d)
+        D2 = np.maximum(0.0, saliences - cfg.theta_d)
+        STN, GPe, GPi = state.STN, state.GPe, state.GPi
+        for _ in range(n_sweeps):
+            STN, GPe, GPi = _jacobi_update(saliences, D1, D2, GPe, cfg)
+        selected, margin, activations, T_winner = _readout(GPi, cfg)
+        return BGIntegratorState(
+            STN=STN, GPe=GPe, GPi=GPi,
+            selected_channel=selected, decision_margin=margin,
+            suppression_vector=GPi.tolist(), channel_activations=activations,
+            T_winner=T_winner, n_sweeps=state.n_sweeps + n_sweeps,
+        )
 
 
 # --- BG Adapter (Policy Interface) ---
@@ -269,23 +328,7 @@ class BGAdapter:
         saliences = np.array(action_evidence.channel_salience, dtype=float)
         result = self._model.compute(saliences, rng=rng)
 
-        # --- Selection latency mapping ---
-        # Trigger: convert T_winner to selection latency in seconds.
-        # Why: T_winner ∈ (0, thal_threshold]; larger T_winner → less GPi suppression
-        #      → easier decision → shorter BG settling time.  Inverse proportionality
-        #      guarantees the M2 acceptance criterion (latency monotone with conflict).
-        # Outcome: latency_s in [latency_min_ms, latency_max_ms] / 1000.
         T_winner = result["T_winner"]
-        cfg = self.config
-        if T_winner > 0.0:
-            latency_ms = cfg.latency_min_ms + cfg.latency_scale_ms / (T_winner + cfg.latency_eps)
-        else:
-            # Trigger: no channel reached thalamic threshold.
-            # Why: BG failed to decide (high conflict or weak salience); latency is
-            #      capped to indicate the system did not commit to an action.
-            # Outcome: latency_ms = latency_max_ms.
-            latency_ms = cfg.latency_max_ms
-
         return BGDecision(
             sim_time=action_evidence.sim_time,
             trial_id=action_evidence.trial_id,
@@ -293,5 +336,5 @@ class BGAdapter:
             decision_margin=result["decision_margin"],
             suppression_vector=result["suppression_vector"],
             channel_activations=result["channel_activations"],
-            selection_latency=latency_ms / 1000.0,  # schema field is in seconds
+            selection_latency=selection_latency_s(self.config, T_winner),
         )

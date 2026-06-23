@@ -49,4 +49,4 @@ def test_four_knob_maps_all_rates():
     assert engines["sampler"]["EngineTimestep"] == 0.05      # 20 Hz
     assert engines["bg"]["EngineTimestep"] == 1.0 / 40.0     # 40 Hz emission
     assert engines["commitment"]["EngineTimestep"] == 0.1    # 10 Hz
-    assert overlay["integration_substeps"] == 2              # 80/40
+    assert overlay["integration_hz"] == 80.0           # rate passed through to the engine driver

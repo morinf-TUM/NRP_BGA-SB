@@ -48,6 +48,15 @@ This file is the primary source of truth for project context. It is derived from
   sub-project. Frequency-sweep comparison is qualitative-only (the prototype
   JSON aggregates conflict levels). nrp final snapshots now committed under
   `nrp/results/` (`nrp/run/` stays gitignored).
+- **Knob-2 stateful integrator complete (2026-06-23).** The nrp integration
+  sub-step knob is now functional (non-idempotent) via `BGIntegratorDriver`
+  (carried-state GPR integrator, readout-before-convergence, no decision window).
+  Its nrp signature is decision LATENCY, not go-success: release time falls with
+  integration rate (~208 ms @5 Hz → ~58 @20 Hz), shown by
+  `experiments/nrp_integration_latency.py`. The go-success ablation + comparison
+  report are intentionally unchanged (the continuous-release metric can't exhibit
+  the knob, and forcing it regresses sampling — see §15.7). `BGModel.compute`
+  unchanged; prototype untouched.
 
 ### Language and build (Task 0.1, 2026-06-19)
 
@@ -353,6 +362,32 @@ Out of scope of this binding: pysim plant embodiment, paradigms other than
 go/no-go, and perturbation (latency/jitter/dropout/phase-offset) TFs.
 
 **NOTE on knob 2 (integration sub-step) — configurable, not functionally dissociable.** `BGAdapter`/`BGModel.compute` is a stateless steady-state (Jacobi fixed-point) solver: it re-initialises all activations to zero and converges internally on every call, and `BGAdapter.__call__` re-seeds its RNG from the trial seed each call. The BG engine's sub-step loop therefore calls a pure function N times on identical evidence and keeps the last result, so repeated sub-steps are **idempotent** — knob 2 changes nothing in the output under any configuration. It is retained because it is independently *configurable* and exercises the real runtime path, but only three knobs (input sampling, output emission, commitment) are *functionally* dissociable on the current solver. Making the integration sub-step functional would require a stateful/incremental BG integrator (carried activations or per-sub-step evidence fractions) — a science-layer change, out of scope for this binding.
+
+**UPDATE (2026-06-23) — knob 2 made functional; signature is LATENCY, not go-success.**
+The integration sub-step is now a stateful carried-state integrator
+(`BGIntegratorDriver`, `src/nrp_bga_sb/bg_integrator.py`): GPR activations persist
+across emission steps within a trial and are read out before convergence (one carried
+Jacobi sweep per integration tick, no decision window), so the integration RATE controls
+how far the BG has settled at any moment. `BGModel.step`/`BGIntegratorState` provide the
+carried sweep; `BGModel.compute` is unchanged (full-convergence path, backs M2). The nrp
+`bg` engine delegates to the driver and `config_gen` passes `integration_hz`.
+
+The knob is no longer idempotent, but its observable effect in the nrp pipeline is
+decision **latency**, not go-success rate: nrp scores release if the gate EVER opens
+during the 300 ms sim, so a slow integrator still settles — just later. Measured
+first-release time falls monotonically with rate where integration is the bottleneck
+(~208 ms @5 Hz → ~108 @10 Hz → ~58 @20 Hz; floors ~60–80 ms ≥40 Hz), demonstrated by
+`experiments/nrp_integration_latency.py` (→ `nrp/results/integration_latency.json`).
+
+Why the go-success ablation is unchanged: forcing an integration go-success *miss* @5 Hz
+needs a <200 ms decision window to exclude the 5 Hz tick at t=200 ms, but nrp's FTILoop
+slow-sampler staleness delivers the 10 Hz sampler's strong evidence at ~207 ms, so that
+same window regresses `sampling@10Hz` (success→miss) — irreconcilable with a scalar window.
+The prototype's `integration@5Hz` miss is itself a 200 ms-deadline artifact (its tick loop
+is exactly 200 ticks). So `nrp/results/ablation.json` and the comparison report are
+intentionally left unchanged (the integration go-success row stays `1.0`); the latency
+experiment carries the dissociation evidence. The deprecated pure-Python prototype is
+untouched.
 
 ### 15.8 Verified vs unverified claims
 
