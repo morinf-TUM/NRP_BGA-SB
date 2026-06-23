@@ -140,3 +140,43 @@ def compare_ablation(
             KnobVerdict(knob=knob, holds=not divergent, divergent_freqs=divergent, rows=rows)
         )
     return AblationVerdict(knobs=knob_verdicts, holds=all(kv.holds for kv in knob_verdicts))
+
+
+# --- Frequency-sweep comparison (qualitative only) ---
+
+
+@dataclass
+class SweepVerdict:
+    proto_onset_hz: float | None
+    nrp_onset_hz: float | None
+    proto_rows: dict[float, float]
+    nrp_rows: dict[float, float]
+    caveat: str
+
+
+def _success_onset(series: dict[float, float]) -> float | None:
+    """Lowest frequency whose regime is 'success', or None if never."""
+    successes = [hz for hz in sorted(series) if classify_regime(series[hz]) == "success"]
+    return successes[0] if successes else None
+
+
+def compare_frequency_sweep(
+    proto: dict[float, float],
+    nrp: dict[float, float],
+) -> SweepVerdict:
+    """Qualitative comparison only. The prototype sweep JSON averages conflict
+    levels (low/medium/high), which inflates its apparent success onset, so we
+    report each side's monotone curve and onset but never a per-frequency
+    pass/fail."""
+    return SweepVerdict(
+        proto_onset_hz=_success_onset(proto),
+        nrp_onset_hz=_success_onset(nrp),
+        proto_rows=dict(proto),
+        nrp_rows=dict(nrp),
+        caveat=(
+            "Prototype frequency-sweep rates aggregate conflict levels "
+            "(low/medium/high), inflating the apparent success onset; only the "
+            "qualitative monotone rise to 1.0 is comparable, not the onset "
+            "frequency or per-frequency rates."
+        ),
+    )

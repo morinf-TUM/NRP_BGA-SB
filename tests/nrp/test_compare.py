@@ -100,3 +100,23 @@ def test_compare_ablation_flags_integration_divergence():
     assert by_knob["integration"].holds is False
     assert by_knob["integration"].divergent_freqs == [5.0]
     assert verdict.holds is False
+
+
+from nrp.compare import compare_frequency_sweep
+
+
+def test_compare_frequency_sweep_reports_onsets_with_caveat():
+    proto = load_prototype_gonogo_sweep(PROTO / "frequency_sweep_results.json")
+    nrp = load_nrp_gonogo_sweep(RESULTS / "gonogo_sweep.json")
+    verdict = compare_frequency_sweep(proto, nrp)
+    # nrp onset is 10 Hz (5 Hz misses). Prototype onset is inflated to 20 Hz by
+    # conflict-level aggregation (10 Hz aggregate = 0.333 -> miss regime).
+    assert verdict.nrp_onset_hz == 10.0
+    assert verdict.proto_onset_hz == 20.0
+    assert "conflict" in verdict.caveat.lower()
+
+
+def test_compare_frequency_sweep_onset_none_when_all_miss():
+    verdict = compare_frequency_sweep({10.0: 0.0, 20.0: 0.0}, {10.0: 0.0})
+    assert verdict.proto_onset_hz is None
+    assert verdict.nrp_onset_hz is None
