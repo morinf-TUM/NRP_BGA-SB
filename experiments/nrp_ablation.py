@@ -40,11 +40,15 @@ def ablate_knob(knob: str, frequencies: list[float], run_root: Path,
 
 
 if __name__ == "__main__":
+    # Per-trial run dirs stay under the gitignored nrp/run/; the final snapshot
+    # lands in the committed nrp/results/ so the offline comparison can consume it.
     run_root = Path("nrp/run/ablation")
     results = {k: ablate_knob(k, FREQUENCIES_HZ, run_root) for k in KNOBS}
-    Path("nrp/run/nrp_ablation.json").write_text(json.dumps(results, indent=2))
+    result_path = Path("nrp/results/ablation.json")
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(results, indent=2))
     print("go-success rate vs frequency, per ablated knob (others pinned 160 Hz):")
     for k in KNOBS:
         row = "  ".join(f"{hz:g}:{results[k][hz]:.2f}" for hz in FREQUENCIES_HZ)
         print(f"  {k:11s} {row}")
-    print("saved -> nrp/run/nrp_ablation.json")
+    print(f"saved -> {result_path}")

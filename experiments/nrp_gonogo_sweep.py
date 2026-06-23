@@ -28,9 +28,12 @@ def run_sweep(frequencies: list[float], n_seeds: int, run_root: Path) -> dict[fl
 
 
 if __name__ == "__main__":
+    # Per-trial run dirs stay under the gitignored nrp/run/; the final snapshot
+    # lands in the committed nrp/results/ so the offline comparison can consume it.
     out_root = Path("nrp/run/gonogo_sweep")
     rates = run_sweep(FREQUENCIES_HZ, n_seeds=5, run_root=out_root)
-    result_path = Path("nrp/run/nrp_gonogo_sweep.json")
+    result_path = Path("nrp/results/gonogo_sweep.json")
+    result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(rates, indent=2))
     print("go-success rate vs BG frequency (Hz):")
     for hz in FREQUENCIES_HZ:
