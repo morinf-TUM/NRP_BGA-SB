@@ -63,3 +63,40 @@ def test_committed_snapshots_lock_key_divergence():
     sweep = json.loads((RESULTS / "gonogo_sweep.json").read_text())
     assert sweep["5.0"] == 0.0
     assert sweep["10.0"] == 1.0
+
+
+from nrp.compare import (
+    align_series,
+    classify_regime,
+    compare_ablation,
+)
+
+
+def test_classify_regime_threshold():
+    assert classify_regime(1.0) == "success"
+    assert classify_regime(0.51) == "success"
+    assert classify_regime(0.5) == "miss"
+    assert classify_regime(0.0) == "miss"
+
+
+def test_align_series_tags_membership():
+    rows = align_series({5.0: 0.0, 10.0: 1.0}, {10.0: 1.0, 20.0: 1.0})
+    by_hz = {r.freq_hz: r for r in rows}
+    assert by_hz[5.0].tag == "proto_only"
+    assert by_hz[10.0].tag == "common"
+    assert by_hz[20.0].tag == "nrp_only"
+    # sorted by frequency
+    assert [r.freq_hz for r in rows] == [5.0, 10.0, 20.0]
+
+
+def test_compare_ablation_flags_integration_divergence():
+    proto = load_prototype_ablation(PROTO / "ablation_frequency_v2.json")
+    nrp = load_nrp_ablation(RESULTS / "ablation.json")
+    verdict = compare_ablation(proto, nrp)
+    by_knob = {kv.knob: kv for kv in verdict.knobs}
+    assert by_knob["sampling"].holds is True
+    assert by_knob["emission"].holds is True
+    assert by_knob["commitment"].holds is True
+    assert by_knob["integration"].holds is False
+    assert by_knob["integration"].divergent_freqs == [5.0]
+    assert verdict.holds is False
