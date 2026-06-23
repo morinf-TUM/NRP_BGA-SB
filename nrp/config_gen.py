@@ -105,7 +105,9 @@ def build_config_four_knob(*, input_sampling_hz: float, integration_hz: float,
         input_sampling_hz=input_sampling_hz,
         output_emission_hz=output_emission_hz,
         commitment_hz=commitment_hz, name=name)
-    # Knob 2 rides on the BG engine via a params overlay (internal sub-steps),
-    # not as an EngineTimestep. substeps = how many integration steps per emission.
-    substeps = max(1, round(integration_hz / output_emission_hz))
-    return cfg, {"integration_substeps": substeps}
+    # Knob 2 rides on the BG engine via a params overlay. The engine's
+    # BGIntegratorDriver schedules carried sweeps from the rate directly, decoupled
+    # from emission; passing a pre-baked sub-step count collapsed to 1 across the
+    # whole 5-160 Hz grid (integration_hz <= emission baseline), which is why the
+    # knob was inert. See PROJECT_MEMORY §15.7.
+    return cfg, {"integration_hz": float(integration_hz)}
