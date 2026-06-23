@@ -60,7 +60,8 @@ def selection_latency_s(config, T_winner):
     """Map thalamus winner output to selection latency (seconds). Inverse
     proportionality: smaller T_winner (more conflict / less settling) -> longer latency."""
     if T_winner > 0.0:
-        latency_ms = config.latency_min_ms + config.latency_scale_ms / (T_winner + config.latency_eps)
+        denominator = T_winner + config.latency_eps
+        latency_ms = config.latency_min_ms + config.latency_scale_ms / denominator
     else:
         latency_ms = config.latency_max_ms
     return latency_ms / 1000.0
@@ -152,7 +153,7 @@ class BGIntegratorState:
     n_sweeps: int = 0
 
     @classmethod
-    def initial(cls, n: int, cfg: "BGModelConfig | None" = None) -> "BGIntegratorState":
+    def initial(cls, n: int, cfg: BGModelConfig | None = None) -> BGIntegratorState:
         cfg = cfg or BGModelConfig()
         GPi = np.zeros(n)
         selected, margin, acts, T_winner = _readout(GPi, cfg)
@@ -250,7 +251,11 @@ class BGModel:
     def step(self, state, saliences, n_sweeps=1):
         """Advance the carried integrator by n_sweeps GPR sweeps on `saliences`,
         reading out the current (possibly unsettled) state. With enough sweeps this
-        converges to the same fixed point as compute()."""
+        converges to the same fixed point as compute().
+
+        Noise-free path: unlike compute(rng=...), step() takes no rng and does not
+        apply config.noise_std. The stateful integrator is used with the default
+        noise-free config; a noisy carried trajectory is out of scope here."""
         if n_sweeps < 1:
             raise ValueError(f"n_sweeps must be >= 1, got {n_sweeps}")
         cfg = self.config
