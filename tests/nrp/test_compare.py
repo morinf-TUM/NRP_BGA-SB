@@ -154,3 +154,15 @@ def test_format_report_contains_tables_and_callout():
     assert "integration" in report.lower()
     assert "5" in report  # the 5 Hz divergence appears
     assert "conflict" in report.lower()  # the sweep caveat is present
+
+
+def test_driver_main_writes_report(tmp_path, monkeypatch):
+    import experiments.nrp_vs_prototype as driver
+
+    out = tmp_path / "report.md"
+    monkeypatch.setattr(driver, "REPORT", out)
+    driver.main()
+    text = out.read_text()
+    assert text.startswith("# Go/No-Go: Prototype vs nrp-core")
+    assert "3 of 4" in text
+    assert "integration" in text.lower()
