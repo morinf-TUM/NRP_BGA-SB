@@ -17,7 +17,8 @@ def test_load_prototype_ablation_normalizes_and_maps(tmp_path):
     records = [
         {"condition": "baseline", "knob_name": "all", "freq_hz": 160.0, "miss_rate": 0.0},
         {"condition": "sweep", "knob_name": "input_sampling_hz", "freq_hz": 5.0, "miss_rate": 1.0},
-        {"condition": "sweep", "knob_name": "integration_step_hz", "freq_hz": 5.0, "miss_rate": 0.0},
+        {"condition": "sweep", "knob_name": "integration_step_hz", "freq_hz": 5.0,
+         "miss_rate": 0.0},
     ]
     p = tmp_path / "ab.json"
     p.write_text(json.dumps(records))

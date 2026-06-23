@@ -9,7 +9,7 @@ binding's `go_success_rate` become directly comparable.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 # --- Knob vocabulary ---
@@ -227,8 +227,11 @@ def _ablation_table(ablation: AblationVerdict) -> str:
                 p = "–" if row.proto_rate is None else f"{row.proto_rate:g}"
                 n = "–" if row.nrp_rate is None else f"{row.nrp_rate:g}"
                 mark = ""
-                if row.tag == "common" and classify_regime(row.proto_rate) != classify_regime(row.nrp_rate):
-                    mark = " ✗"
+                # A common-grid cell whose two sides fall in different regimes
+                # is the divergence we flag (e.g. integration at 5 Hz).
+                if row.tag == "common":
+                    if classify_regime(row.proto_rate) != classify_regime(row.nrp_rate):
+                        mark = " ✗"
                 cells.append(f"{p}/{n}{mark}")
         status = "✓" if kv.holds else f"✗ @ {', '.join(f'{x:g}' for x in kv.divergent_freqs)} Hz"
         lines.append(f"| {kv.knob} | " + " | ".join(cells) + f" | {status} |")
