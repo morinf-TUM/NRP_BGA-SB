@@ -76,7 +76,7 @@ def format_report(results: list[CerebellumSweepResult]) -> str:
 
 def main() -> None:
     results = run_sweep()
-    save_results(results, "results/cerebellum_results.json")
+    save_results(results, "deprecated_toy_prototype_results/cerebellum_results.json")
     print(format_report(results))
 
 

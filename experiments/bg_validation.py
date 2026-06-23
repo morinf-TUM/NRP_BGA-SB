@@ -7,7 +7,7 @@ Exercises BGAdapter in isolation: sweeps three salience conditions and confirms
 Run:
     python experiments/bg_validation.py
 Output:
-    results/bg_validation.json — list of 3 dicts, one per conflict level
+    deprecated_toy_prototype_results/bg_validation.json — list of 3 dicts, one per conflict level
 """
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def run_bg_validation() -> list[dict]:
 if __name__ == "__main__":
     results = run_bg_validation()
 
-    out_path = Path("results/bg_validation.json")
+    out_path = Path("deprecated_toy_prototype_results/bg_validation.json")
     out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"Saved → {out_path}\n")
 

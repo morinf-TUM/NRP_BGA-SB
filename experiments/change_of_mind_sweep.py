@@ -27,7 +27,7 @@ def main() -> None:
         result = run_change_of_mind_condition(freq_hz)
         results.append(result)
 
-    out_path = pathlib.Path("results/change_of_mind_sweep.json")
+    out_path = pathlib.Path("deprecated_toy_prototype_results/change_of_mind_sweep.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w") as f:
         json.dump([r.model_dump() for r in results], f, indent=2)

@@ -11,7 +11,7 @@ Acceptance (M4): reproducible frequency-response curves with 95% bootstrap CIs
 produced for go/no-go and two-choice on the abstract embodiment.
 
 Output:
-  results/frequency_sweep_results.json — list of condition result dicts
+  deprecated_toy_prototype_results/frequency_sweep_results.json — list of condition result dicts
   stdout                               — progress + formatted report with CIs
 """
 
@@ -44,7 +44,7 @@ N_TRIALS: int = 30
 REPRO_FREQS: list[float] = [10.0, 40.0]
 REPRO_SEEDS: list[int] = [0, 1, 2]
 
-RESULTS_DIR = Path(__file__).parent.parent / "results"
+RESULTS_DIR = Path(__file__).parent.parent / "deprecated_toy_prototype_results"
 RESULTS_PATH = RESULTS_DIR / "frequency_sweep_results.json"
 
 

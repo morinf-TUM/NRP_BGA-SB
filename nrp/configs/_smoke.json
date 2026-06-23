@@ -1,0 +1,16 @@
+{
+    "SimulationName": "nrp_bga_smoke",
+    "SimulationDescription": "Phase-0 smoke: one python_json engine, one logging TF.",
+    "SimulationTimeout": 0.01,
+    "EngineConfigs": [
+        {
+            "EngineType": "python_json",
+            "EngineName": "smoke",
+            "EngineTimestep": 0.001,
+            "PythonFileName": "nrp/engines/_smoke_engine.py"
+        }
+    ],
+    "DataPackProcessingFunctions": [
+        { "Name": "log_tick", "FileName": "nrp/tfs/_smoke_tf.py" }
+    ]
+}

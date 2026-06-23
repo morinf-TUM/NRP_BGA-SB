@@ -1,13 +1,13 @@
 # visuals/data_loader.py
-"""Thin wrappers that load each result JSON from results/ into a list[dict]."""
+"""Thin wrappers that load each result JSON from deprecated_toy_prototype_results/ into a list[dict]."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
 
-# Results live at project_root/results/; this file is at project_root/src/visuals/
-_RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+# Results live at project_root/deprecated_toy_prototype_results/; this file is at project_root/src/visuals/
+_RESULTS_DIR = Path(__file__).parent.parent.parent / "deprecated_toy_prototype_results"
 
 
 def _load(filename: str) -> Any:

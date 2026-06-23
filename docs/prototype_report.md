@@ -160,7 +160,7 @@ movement is executed — the BG-effect guard is intact.
 ## Codebase and reproducibility
 
 - All experiments are deterministic (fixed seeds, `noise_std=0.0` for BG model except two-choice paradigm).
-- Result JSONs committed alongside source code in `results/`.
+- Result JSONs committed alongside source code in `deprecated_toy_prototype_results/`.
 - Docker-gated OpenSim tests require `nrp-bga-opensim:4.6` image (`pytest -m opensim`).
 - Host test suite: `python -m pytest tests/ -x -q` — 728+ tests, ruff clean.
 - Milestones: M0 (schemas), M1 (task engine), M2 (BG), M3 (frequency layer), M4 (go/no-go sweep), M5 (stop-signal), M6 (change-of-mind), M7 (kinematic reacher), M8 (OpenSim), M9 (cerebellar correction), M10 (perturbation decomposition) — all complete.
