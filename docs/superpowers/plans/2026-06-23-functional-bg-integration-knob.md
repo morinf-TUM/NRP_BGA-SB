@@ -2,9 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make BG frequency knob 2 (internal integration sub-step) functionally dissociable on the nrp-core binding by giving the BG solver a stateful, carried-state integrator that is read out before convergence.
+> **Revision 2 (latency-signature framing) governs.** See the design doc Revision 2. The
+> integration knob is made functional/non-idempotent, but its nrp-observable signature is decision
+> LATENCY (a slow rate settles later), not a go-success miss — so the driver has NO decision window,
+> and `nrp/results/ablation.json` + `docs/nrp_vs_prototype_comparison.md` + `tests/nrp/test_compare.py`
+> are left unchanged. Tasks 2, 4, 5 below are the Revision-2 versions.
 
-**Architecture:** Add an additive stateful stepper to the existing GPR solver (`BGModel.step` + `BGIntegratorState`, leaving `BGModel.compute` byte-for-byte unchanged). A new pure-Python `BGIntegratorDriver` schedules one carried Jacobi sweep per integration-tick boundary inside a half-open accumulation window `[0, accumulation_ms)`, reading out the current (possibly unsettled) state. The nrp `bg` engine delegates to this driver; `config_gen` passes the integration rate instead of a pre-baked sub-step count. At the baseline integration rate the driver converges and reproduces `compute()`; only a lowered integration rate changes behaviour — fixing the inert integration ablation row.
+**Goal:** Make BG frequency knob 2 (internal integration sub-step) functionally dissociable on the nrp-core binding by giving the BG solver a stateful, carried-state integrator read out before convergence — its functional signature being decision settling latency.
+
+**Architecture:** Add an additive stateful stepper to the existing GPR solver (`BGModel.step` + `BGIntegratorState`, leaving `BGModel.compute` byte-for-byte unchanged). A new pure-Python `BGIntegratorDriver` schedules one carried Jacobi sweep per integration-tick boundary across the trial (no window), reading out the current (possibly unsettled) state. The nrp `bg` engine delegates to this driver; `config_gen` passes the integration rate instead of a pre-baked sub-step count. A lower integration rate settles later → its effect shows up as release latency, measured by a dedicated experiment.
 
 **Tech Stack:** Python 3.10, numpy, Pydantic v2, pytest, ruff. nrp-core (NRPCoreSim/FTILoop) for the gated runtime tests only.
 
@@ -14,10 +20,11 @@
 - Fail fast: no silent fallbacks, no broad except, no speculative getattr/casts. Validate inputs and raise `ValueError` with an explicit message.
 - `BGModel.compute()` output must remain **exactly** unchanged (it backs M2 validation and every host/closed-loop test). All new behaviour is additive.
 - nrp-only scope: do **not** modify `src/nrp_bga_sb/scheduler.py`, the closed-loop policy, or `deprecated_toy_prototype_results/`.
+- Revision-2 invariant: do **not** modify `nrp/results/ablation.json`, `docs/nrp_vs_prototype_comparison.md`, or `tests/nrp/test_compare.py` (the go-success ablation is metric-insensitive to this knob and is left as-is).
 - Literate-programming comment style: explain *why* for decision points/constraints; no comments that merely restate code.
 - Run the narrowest test that proves each change before widening. Commit after each task.
-- Accumulation window is the half-open interval `[0, accumulation_ms)` with `accumulation_ms = 200.0` (matches the cortex ramp + prototype window, and excludes the t=200 ms tick so 5 Hz misses).
-- Cortex ramp facts the boundary depends on: `CortexConfig` defaults `rise_time_ms=100`, `peak_salience=0.9`, `base_salience=0.5`; thalamic `margin_threshold=0.05`.
+- The driver has **no decision window**: one carried sweep per integration tick (`k / integration_hz` s) across the trial. A lower rate settles later (latency signature).
+- Cortex ramp facts the latency depends on: `CortexConfig` defaults `rise_time_ms=100`, `peak_salience=0.9`, `base_salience=0.5`; thalamic `margin_threshold=0.05`; nrp `SimulationTimeout=0.3 s`.
 
 ---
 
@@ -274,21 +281,28 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Host-testable integration driver (`BGIntegratorDriver`) — the boundary lock
+### Task 2 (Revision 2): Host-testable integration driver (`BGIntegratorDriver`) — the latency lock
 
-A pure-Python driver that schedules one carried sweep per integration-tick boundary inside `[0, accumulation_ms)` and returns a `BGDecision`. This task contains the runtime-independent proof that the knob is functional and matches the boundary.
+> **Revision 2 (latency-signature framing).** This REPLACES the earlier windowed Task 2 (commit
+> `d927b24`). The driver has **no accumulation window**: it schedules one carried sweep per
+> integration tick across the whole trial, so a slower rate settles *later* rather than not at
+> all. The empirical runtime showed the windowed form regressed the sampling knob; the integration
+> knob's true nrp signature is decision **latency**, not a go-success miss. This task overwrites
+> `src/nrp_bga_sb/bg_integrator.py` and `tests/test_bg_integrator.py`.
+
+A pure-Python driver that schedules one carried sweep per integration tick and returns a `BGDecision`. This task contains the runtime-independent proof that the knob is functional (non-idempotent) and that its release latency scales with the integration rate.
 
 **Files:**
-- Create: `src/nrp_bga_sb/bg_integrator.py`
-- Test: `tests/test_bg_integrator.py` (new)
+- Overwrite: `src/nrp_bga_sb/bg_integrator.py`
+- Overwrite: `tests/test_bg_integrator.py`
 
 **Interfaces:**
 - Consumes: `BGModel`, `BGModelConfig`, `BGIntegratorState`, `selection_latency_s` (Task 1); `ActionEvidence`, `BGDecision`, `TrialLog`; `CortexEvidenceGenerator`, `CortexConfig`; `ThalamusGate`, `ThalamusConfig`.
-- Produces: `BGIntegratorDriver(integration_hz: float, accumulation_ms: float = 200.0, config: BGModelConfig = ...)` with method `advance(elapsed_ms: float, evidence: ActionEvidence) -> BGDecision`.
+- Produces: `BGIntegratorDriver(integration_hz: float, config: BGModelConfig = ...)` with method `advance(elapsed_ms: float, evidence: ActionEvidence) -> BGDecision`. **No `accumulation_ms` parameter.**
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Overwrite the test (failing first)**
 
-Create `tests/test_bg_integrator.py`:
+Overwrite `tests/test_bg_integrator.py` (host-verified values: first-release ms = 200/100/50 at 5/10/20 Hz):
 
 ```python
 from nrp_bga_sb.bg_integrator import BGIntegratorDriver
@@ -296,45 +310,54 @@ from nrp_bga_sb.cortex import CortexConfig, CortexEvidenceGenerator
 from nrp_bga_sb.thalamus import ThalamusConfig, ThalamusGate
 from nrp_bga_sb.schemas import TrialLog
 
-EMISSION_HZ = 160.0          # other knobs pinned high during the integration ablation
+EMISSION_HZ = 160.0          # the BG engine wakes at the emission rate (others pinned high)
 SIM_MS = 300.0               # nrp SimulationTimeout = 0.3 s
 
 
-def _ever_released(integration_hz: float) -> bool:
+def _first_release_ms(integration_hz: float) -> float | None:
     """Replicate the nrp pipeline on the host: drive the integrator at the emission
-    cadence with the cortex ramp, and ask whether the thalamus gate ever opens
-    (same release rule as nrp/score.py)."""
-    drv = BGIntegratorDriver(integration_hz=integration_hz, accumulation_ms=200.0)
+    cadence with the cortex ramp, and return the first elapsed time (ms) at which the
+    thalamus gate opens (same release rule as nrp/score.py), or None if never."""
+    drv = BGIntegratorDriver(integration_hz=integration_hz)
     cortex = CortexEvidenceGenerator(CortexConfig())
     gate = ThalamusGate(ThalamusConfig())
     trial = TrialLog(trial_id=0, seed=0, task_type="go_nogo", cue_identity="go", cue_onset_time=0.0)
     step_ms = 1000.0 / EMISSION_HZ
     t = 0.0
-    released = False
     while t <= SIM_MS + 1e-9:
         ev = cortex(trial, t)
         dec = drv.advance(t, ev)
         motor = gate(dec)
         if motor.gate_state in ("open", "partial") and any(motor.command):
-            released = True
+            return t
         t += step_ms
-    return released
+    return None
 
 
-def test_integration_misses_at_5hz():
-    # 5 Hz: single tick at t=0 on neutral evidence; t=200 tick excluded -> never settles.
-    assert _ever_released(5.0) is False
+def test_release_latency_decreases_with_rate():
+    # The integration knob's nrp signature: slower integration settles (releases) LATER.
+    r5, r10, r20 = _first_release_ms(5.0), _first_release_ms(10.0), _first_release_ms(20.0)
+    assert r5 is not None and r10 is not None and r20 is not None  # all functional
+    assert r5 > r10 > r20  # monotone settling latency where integration is the bottleneck
 
 
-def test_integration_succeeds_at_10_20_40hz():
-    assert _ever_released(10.0) is True
-    assert _ever_released(20.0) is True
-    assert _ever_released(40.0) is True
+def test_every_rate_eventually_releases():
+    # Functional, not idempotent: even 5 Hz settles within the 300 ms sim (just late).
+    for hz in (5.0, 10.0, 20.0, 160.0):
+        assert _first_release_ms(hz) is not None
 
 
-def test_baseline_rate_converges_like_compute():
-    # 160 Hz: ~32 sweeps within the window -> converged readout -> success on the ramp.
-    assert _ever_released(160.0) is True
+def test_integrator_is_non_idempotent():
+    # A second sweep on the same evidence changes the readout (margin grows) — the
+    # property the old stateless solver lacked.
+    import numpy as np
+    from nrp_bga_sb.bg_model import BGIntegratorState, BGModel, BGModelConfig
+
+    model = BGModel(BGModelConfig())
+    sal = np.array([0.65, 0.35])
+    s1 = model.step(BGIntegratorState.initial(2), sal, n_sweeps=1)
+    s2 = model.step(s1, sal, n_sweeps=1)
+    assert s2.decision_margin > s1.decision_margin
 
 
 def test_rejects_nonpositive_rate():
@@ -346,18 +369,23 @@ def test_rejects_nonpositive_rate():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_bg_integrator.py -q`
-Expected: FAIL — `ModuleNotFoundError: No module named 'nrp_bga_sb.bg_integrator'`.
+Expected: FAIL. If the old windowed driver is still present it fails on the `accumulation_ms`-free constructor / new assertions; if absent, `ModuleNotFoundError`. Either way RED before the rewrite.
 
-- [ ] **Step 3: Implement the driver**
+- [ ] **Step 3: Overwrite the driver (no window)**
 
-Create `src/nrp_bga_sb/bg_integrator.py`:
+Overwrite `src/nrp_bga_sb/bg_integrator.py`:
 
 ```python
 """Stateful BG integration driver (knob 2). Carries GPR activations across
 integration sub-steps within a trial and reads out the current (possibly
 unsettled) state, so the integration RATE controls how far the BG has settled
-by the decision deadline. This is the science-layer change that makes the
+at any moment. This is the science-layer change that makes the
 internal-integration-step knob functionally dissociable (PROJECT_MEMORY §15.7).
+
+There is no decision-deadline window: the integrator keeps sweeping at the
+integration rate for the whole trial. A slower rate therefore settles LATER
+(its observable effect in the nrp pipeline is decision latency, not a
+go-success miss — see the design doc, Revision 2).
 
 The nrp `bg` engine cannot run on the host (it imports nrp_core), so the
 scheduling + stepping logic lives here, host-tested, and the engine delegates.
@@ -378,21 +406,18 @@ from nrp_bga_sb.schemas import ActionEvidence, BGDecision
 
 @dataclass
 class BGIntegratorDriver:
-    """Schedules one carried GPR sweep per integration-tick boundary inside the
-    half-open window [0, accumulation_ms). At the baseline rate the integrator
-    converges and the readout equals BGModel.compute(); at low rates it is read
-    out before settling, producing the miss-at-5-Hz / success-at->=10-Hz boundary.
+    """Schedules one carried GPR sweep per integration-tick boundary
+    (k / integration_hz seconds) across the trial, reading out the current
+    (possibly unsettled) state. More sub-steps -> closer to the BGModel.compute()
+    fixed point; a slow integration rate reaches it later.
     """
 
     integration_hz: float
-    accumulation_ms: float = 200.0
     config: BGModelConfig = field(default_factory=BGModelConfig)
 
     def __post_init__(self) -> None:
         if self.integration_hz <= 0:
             raise ValueError(f"integration_hz must be > 0, got {self.integration_hz}")
-        if self.accumulation_ms <= 0:
-            raise ValueError(f"accumulation_ms must be > 0, got {self.accumulation_ms}")
         self._model = BGModel(self.config)
         self._period_ms = 1000.0 / self.integration_hz
         self._next_k = 0
@@ -404,14 +429,11 @@ class BGIntegratorDriver:
             self._state = BGIntegratorState.initial(n, self.config)
 
         saliences = evidence.channel_salience
-        # Fire every integration tick whose boundary has been crossed by now and
-        # lies strictly inside the accumulation window. Each fires one sweep on the
-        # evidence current at this call. The strict `< accumulation_ms` bound
-        # excludes the t=200 ms tick, which is what makes 5 Hz (period=200 ms) miss.
-        while (
-            self._next_k * self._period_ms <= elapsed_ms
-            and self._next_k * self._period_ms < self.accumulation_ms
-        ):
+        # Fire every integration tick whose boundary has been crossed since the last
+        # call; each fires one carried sweep on the evidence current at this call.
+        # No upper bound: at a low rate the few sweeps land late, so the decision
+        # settles late (latency signature) rather than never.
+        while self._next_k * self._period_ms <= elapsed_ms:
             self._state = self._model.step(self._state, saliences, n_sweeps=1)
             self._next_k += 1
 
@@ -430,15 +452,15 @@ class BGIntegratorDriver:
 - [ ] **Step 4: Run the tests**
 
 Run: `python -m pytest tests/test_bg_integrator.py -q`
-Expected: PASS (4 tests). This is the boundary lock.
+Expected: PASS (4 tests). The latency lock: `r5 > r10 > r20` (200 > 100 > 50 ms on the host).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/nrp_bga_sb/bg_integrator.py tests/test_bg_integrator.py
-git commit -m "feat: BGIntegratorDriver locks integration boundary (miss@5Hz, success@>=10Hz)
+git commit -m "refactor: BGIntegratorDriver drops window; latency-signature (no go-success regression)
 
-ChangeSet-ID: knob2-driver
+ChangeSet-ID: knob2-driver-v2
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -516,12 +538,16 @@ Rewrite the engine `runLoop` to delegate to `BGIntegratorDriver`, removing the i
 
 Replace the body of `nrp/engines/bg_engine.py` with:
 
+> **Revision 2:** the driver takes no `accumulation_ms`; the engine constructs it with
+> `integration_hz` only. No window constant.
+
 ```python
 """BG engine: runs the GPR BG model on the most recent sampled evidence and emits
 a `decision` datapack. Delegates to BGIntegratorDriver, a stateful integrator that
-carries GPR activations across emission steps within a trial and reads out before
-convergence -- so the internal-integration-step rate (knob 2) is functionally
-dissociable (PROJECT_MEMORY §15.7), not idempotent.
+carries GPR activations across emission steps within a trial and reads out the
+current (possibly unsettled) state -- so the internal-integration-step rate
+(knob 2) is functionally dissociable (PROJECT_MEMORY §15.7), not idempotent. Its
+observable effect in this pipeline is decision latency (a slow rate settles late).
 
 Input-sampling, emission, and commitment remain EngineTimesteps (§15.4); the
 integration rate rides on the params overlay (`integration_hz`)."""
@@ -534,11 +560,6 @@ from nrp_core.engines.python_json import EngineScript
 from nrp.serde import decision_to_dict, evidence_from_dict
 from nrp_bga_sb.bg_integrator import BGIntegratorDriver
 
-# Matches the cortex ramp + prototype accumulation window; the strict upper bound
-# excludes the t=200 ms tick so a 5 Hz integration rate settles only on neutral
-# early evidence and misses (mirrors the other three knobs' 5 Hz boundary).
-ACCUMULATION_MS = 200.0
-
 
 class Script(EngineScript):
     def initialize(self):
@@ -546,10 +567,9 @@ class Script(EngineScript):
             params = json.load(fh)
         # Knob 2: BG internal integration step, scheduled by the driver from the
         # integration rate. State is created here and carried across runLoop calls
-        # (one NRPCoreSim run = one trial).
+        # (one NRPCoreSim run = one trial); a slower rate settles later.
         self._driver = BGIntegratorDriver(
             integration_hz=float(params["integration_hz"]),
-            accumulation_ms=ACCUMULATION_MS,
         )
         self._registerDataPack("sampled_evidence")
         self._registerDataPack("decision")
@@ -580,138 +600,176 @@ Expected: no errors.
 
 ```bash
 git add nrp/engines/bg_engine.py
-git commit -m "feat: bg engine delegates to stateful BGIntegratorDriver (knob 2 functional)
+git commit -m "refactor: bg engine constructs windowless BGIntegratorDriver (latency signature)
 
-ChangeSet-ID: knob2-engine
+ChangeSet-ID: knob2-engine-v2
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: Regenerate the nrp ablation snapshot + comparison report (gated runtime)
+### Task 5 (Revision 2): nrp integration-latency experiment (the dissociation demonstration)
 
-Run the gated nrp ablation to regenerate `nrp/results/ablation.json` (integration row should flip to `0.0 @ 5 Hz → 1.0 @ ≥10 Hz`), update the divergence-encoding tests, and regenerate the comparison report.
+> **Revision 2.** The go-success ablation is metric-insensitive to this knob (nrp judges release
+> continuously over 300 ms, so a slow integrator still releases — just later). So
+> `nrp/results/ablation.json`, `docs/nrp_vs_prototype_comparison.md`, and `tests/nrp/test_compare.py`
+> are **left UNCHANGED**. Instead, demonstrate the knob's functional signature — release LATENCY vs
+> integration rate — with a new experiment + a host test for its pure extraction helper + a gated
+> runtime test.
 
 **Files:**
-- Regenerate: `nrp/results/ablation.json`
-- Regenerate: `docs/nrp_vs_prototype_comparison.md`
-- Modify: `tests/nrp/test_compare.py` (the assertions encoding the divergence)
+- Create: `experiments/nrp_integration_latency.py`
+- Create: `tests/test_integration_latency.py` (host, pure helper)
+- Create: `tests/nrp/test_integration_latency_nrp.py` (gated runtime, marked `nrp`)
+- Generate: `nrp/results/integration_latency.json` (committed artifact, via the runtime)
 
 **Interfaces:**
-- Consumes: the gated `experiments/nrp_ablation.py` (Task 3/4 changes); `experiments/nrp_vs_prototype.py` (report driver, unchanged); `nrp/compare.py` (data-driven, unchanged).
+- Consumes: `build_config_four_knob` (Task 3 overlay), `run_trial`.
+- Produces: `first_release_index(trace: list[dict]) -> int | None`; `measure(integration_hz: float, run_root: Path, seed: int = 0) -> int | None`; `FREQUENCIES_HZ`.
 
-- [ ] **Step 1: Regenerate the nrp ablation snapshot (requires the nrp runtime)**
+- [ ] **Step 1: Write the host test for the extraction helper (failing)**
 
-Run (in a shell with the runtime):
-```bash
-source .nrp_env
-python experiments/nrp_ablation.py
-```
-Expected stdout: the `integration` row now reads `5:0.00  10:1.00  20:1.00  40:1.00  80:1.00  160:1.00`; the other three rows unchanged. The file `nrp/results/ablation.json` is rewritten.
-Verify:
-```bash
-python -c "import json; d=json.load(open('nrp/results/ablation.json')); print('integration', d['integration']); print('emission', d['emission'])"
-```
-Expected: `integration {'5.0': 0.0, '10.0': 1.0, ...}` and `emission` unchanged from before.
+Create `tests/test_integration_latency.py`:
 
-> If the nrp runtime is unavailable in this environment, STOP and report: the snapshot regeneration and the gated assertions below must be run where `.nrp_env`/`NRPCoreSim` exist. Tasks 1–4 (host) are complete and independently valuable.
-
-- [ ] **Step 2: Update the divergence-encoding tests**
-
-In `tests/nrp/test_compare.py`, make these edits so the suite asserts the resolved (4-of-4) state:
-
-`test_load_nrp_ablation_coerces_str_hz_keys` — integration now misses at 5 Hz:
 ```python
-    assert out["integration"][5.0] == 0.0
+from experiments.nrp_integration_latency import first_release_index
+
+
+def test_first_release_index_finds_first_open_gate():
+    trace = [
+        {"motor": None},
+        {"motor": {"gate_state": "closed", "command": [0.0, 0.0]}},
+        {"motor": {"gate_state": "partial", "command": [0.3, 0.0]}},
+        {"motor": {"gate_state": "open", "command": [1.0, 0.0]}},
+    ]
+    assert first_release_index(trace) == 2
+
+
+def test_first_release_index_none_when_never_open():
+    trace = [{"motor": None}, {"motor": {"gate_state": "closed", "command": [0.0, 0.0]}}]
+    assert first_release_index(trace) is None
+
+
+def test_first_release_index_ignores_open_with_zero_command():
+    # Mirrors nrp/score.py: an open gate with a zero command is NOT a release.
+    trace = [{"motor": {"gate_state": "open", "command": [0.0, 0.0]}}]
+    assert first_release_index(trace) is None
 ```
 
-`test_committed_snapshots_lock_key_divergence` — rename intent to lock the resolution; replace its body:
+- [ ] **Step 2: Run it to confirm RED**
+
+Run: `python -m pytest tests/test_integration_latency.py -q`
+Expected: FAIL — `ModuleNotFoundError: No module named 'experiments.nrp_integration_latency'`.
+
+- [ ] **Step 3: Write the experiment module**
+
+Create `experiments/nrp_integration_latency.py`:
+
 ```python
-def test_committed_snapshots_lock_resolved_boundary():
-    """The committed nrp snapshots now reproduce the prototype on all four knobs:
-    sampling AND integration both miss at 5 Hz, succeed at >=10 Hz."""
-    ablation = json.loads((RESULTS / "ablation.json").read_text())
-    assert ablation["sampling"]["5.0"] == 0.0
-    assert ablation["integration"]["5.0"] == 0.0
-    assert ablation["integration"]["10.0"] == 1.0
-    sweep = json.loads((RESULTS / "gonogo_sweep.json").read_text())
-    assert sweep["5.0"] == 0.0
-    assert sweep["10.0"] == 1.0
+"""Integration knob (knob 2) nrp signature: first-release time vs integration rate.
+
+The go-success ablation cannot show this knob: nrp judges the motor gate as released
+if it EVER opens during the 300 ms sim, so even a slow integrator settles and releases
+-- just later. Release LATENCY is the dissociating signal. A slower integration rate
+settles later (PROJECT_MEMORY §15.7 / design doc Revision 2)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from nrp.config_gen import build_config_four_knob
+from nrp.run import run_trial
+
+HIGH = 160.0
+FREQUENCIES_HZ = [5.0, 10.0, 20.0, 40.0, 80.0, 160.0]
+
+
+def first_release_index(trace: list[dict]) -> int | None:
+    """Index of the first trace record whose motor gate is open/partial with a
+    non-zero command (same release rule as nrp/score.py). The thalamus logs one
+    record per ms, so the index is a millisecond proxy for release latency."""
+    for i, rec in enumerate(trace):
+        m = rec.get("motor")
+        if m and m.get("gate_state") in ("open", "partial") and any(m.get("command", [])):
+            return i
+    return None
+
+
+def measure(integration_hz: float, run_root: Path, seed: int = 0) -> int | None:
+    """Run one go trial with only the integration rate varied (others pinned 160 Hz)
+    and return the first-release record index (~ms), or None if never released."""
+    cfg, overlay = build_config_four_knob(
+        input_sampling_hz=HIGH, integration_hz=integration_hz,
+        output_emission_hz=HIGH, commitment_hz=HIGH)
+    params = {"trial_id": seed, "seed": seed, "cue_identity": "go", **overlay}
+    trace = run_trial(cfg, params, run_root / f"int{integration_hz}hz_s{seed}")
+    return first_release_index(trace)
+
+
+if __name__ == "__main__":
+    run_root = Path("nrp/run/integration_latency")
+    results = {hz: measure(hz, run_root) for hz in FREQUENCIES_HZ}
+    out_path = Path("nrp/results/integration_latency.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps({str(hz): results[hz] for hz in FREQUENCIES_HZ}, indent=2))
+    print("first-release record index (~ms) vs integration rate (others pinned 160 Hz):")
+    for hz in FREQUENCIES_HZ:
+        print(f"  {hz:6g} Hz -> {results[hz]}")
+    print(f"saved -> {out_path}")
 ```
 
-`test_compare_ablation_flags_integration_divergence` — rename + assert integration now holds:
+- [ ] **Step 4: Confirm the host test passes**
+
+Run: `python -m pytest tests/test_integration_latency.py -q`
+Expected: PASS (3 tests).
+
+- [ ] **Step 5: Write the gated runtime test**
+
+Create `tests/nrp/test_integration_latency_nrp.py`:
+
 ```python
-def test_compare_ablation_all_knobs_hold():
-    proto = load_prototype_ablation(PROTO / "ablation_frequency_v2.json")
-    nrp = load_nrp_ablation(RESULTS / "ablation.json")
-    verdict = compare_ablation(proto, nrp)
-    by_knob = {kv.knob: kv for kv in verdict.knobs}
-    assert by_knob["sampling"].holds is True
-    assert by_knob["emission"].holds is True
-    assert by_knob["commitment"].holds is True
-    assert by_knob["integration"].holds is True
-    assert by_knob["integration"].divergent_freqs == []
-    assert verdict.holds is True
+import pytest
+
+pytestmark = pytest.mark.nrp
+
+from experiments.nrp_integration_latency import measure
+
+
+def test_release_latency_decreases_with_rate(tmp_path):
+    """The integration knob's nrp signature: slower integration settles (releases) later.
+    Monotone where integration is the bottleneck (5 > 10 > 20 Hz)."""
+    r5 = measure(5.0, tmp_path)
+    r10 = measure(10.0, tmp_path)
+    r20 = measure(20.0, tmp_path)
+    assert r5 is not None and r10 is not None and r20 is not None
+    assert r5 > r10 > r20
 ```
 
-`test_build_verdict_summary_names_integration` — rename + assert 4-of-4 with integration held:
-```python
-def test_build_verdict_summary_reports_all_four_hold():
-    proto_ab = load_prototype_ablation(PROTO / "ablation_frequency_v2.json")
-    nrp_ab = load_nrp_ablation(RESULTS / "ablation.json")
-    proto_fs = load_prototype_gonogo_sweep(PROTO / "frequency_sweep_results.json")
-    nrp_fs = load_nrp_gonogo_sweep(RESULTS / "gonogo_sweep.json")
-    verdict = build_verdict(
-        compare_ablation(proto_ab, nrp_ab),
-        compare_frequency_sweep(proto_fs, nrp_fs),
-    )
-    assert "4 of 4" in verdict.summary
-    assert "integration" in verdict.summary.lower()  # now in the HELD list
-```
+- [ ] **Step 6: Generate the committed snapshot + run the gated test (requires the nrp runtime)**
 
-`test_driver_main_writes_report` — update the headline assertion:
-```python
-    assert "4 of 4" in text
-```
-
-(`test_format_report_contains_tables_and_callout` still passes: the report still contains "integration", "5", and the sweep "conflict" caveat. Leave it unchanged.)
-
-- [ ] **Step 3: Regenerate the comparison report**
-
-Run:
+Run (the runtime is available in this environment; ~1 min for 6 trials — allow a long timeout):
 ```bash
-python experiments/nrp_vs_prototype.py
+python experiments/nrp_integration_latency.py
+python -m pytest tests/nrp/test_integration_latency_nrp.py -m nrp -q
 ```
-Expected: `docs/nrp_vs_prototype_comparison.md` is rewritten; the **Verdict** line now reads "4 of 4 knobs reproduce the prototype exactly…", the ablation `integration` row shows `0/0 … 1/1 … ✓` with no `✗`, and `holds = ✓`.
+Expected stdout: a monotone-at-low-rate curve, approximately `5 Hz -> ~208`, `10 Hz -> ~108`, `20 Hz -> ~58`, then floors ~60–80 ms for ≥40 Hz; `nrp/results/integration_latency.json` written; the gated test passes (`r5 > r10 > r20`).
 
-- [ ] **Step 4: Run the comparison tests**
+> If the nrp runtime is unavailable, STOP and report: Steps 1–5 (host) are complete; the snapshot + gated assertion need `NRPCoreSim`.
 
-Run (host tests; the loaders read the committed snapshots):
-```bash
-python -m pytest tests/nrp/test_compare.py -q
-```
-Expected: PASS.
-
-- [ ] **Step 5: Run the gated nrp ablation test if present, else note**
-
-Run:
-```bash
-source .nrp_env && python -m pytest tests/nrp -m nrp -q
-```
-Expected: PASS where the runtime exists; otherwise deselected/skipped — note it in the commit body.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add nrp/results/ablation.json docs/nrp_vs_prototype_comparison.md tests/nrp/test_compare.py
-git commit -m "feat: nrp integration knob now reproduces prototype boundary (4 of 4)
+git add experiments/nrp_integration_latency.py tests/test_integration_latency.py \
+        tests/nrp/test_integration_latency_nrp.py nrp/results/integration_latency.json
+git commit -m "feat: integration-latency experiment demonstrates knob-2 dissociation
 
-Regenerated ablation snapshot + comparison report; integration misses at 5 Hz
-and succeeds at >=10 Hz, matching sampling/emission/commitment. Resolves the
-§15.7 knob-2 idempotence divergence.
+Release latency vs integration rate (208ms@5Hz -> 58ms@20Hz, monotone at low
+rates). The go-success ablation is metric-insensitive (nrp judges release over
+the full 300ms sim), so it + the comparison report are intentionally unchanged.
 
-ChangeSet-ID: knob2-comparison
+ChangeSet-ID: knob2-latency
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -731,18 +789,31 @@ Update PROJECT_MEMORY to record knob 2 as functional, run the full host suite + 
 Append (do not delete the historical NOTE) a follow-up paragraph after the existing knob-2 NOTE, recording that the idempotence has been resolved on the nrp side:
 
 ```markdown
-**UPDATE (2026-06-23) — knob 2 made functional (nrp side).** The integration
-sub-step is now a stateful carried-state integrator (`BGIntegratorDriver`,
-`src/nrp_bga_sb/bg_integrator.py`): GPR activations persist across emission steps
-within a trial and are read out before convergence, so the integration RATE
-controls settling at the decision deadline. `BGModel.step`/`BGIntegratorState`
-provide the carried sweep; `BGModel.compute` is unchanged (full-convergence path,
-backs M2). The nrp `bg` engine delegates to the driver and `config_gen` passes
-`integration_hz`. Result: the nrp integration ablation now reproduces the prototype
-boundary (0.0 @ 5 Hz → 1.0 @ ≥10 Hz) — all four knobs hold; the comparison report
-`docs/nrp_vs_prototype_comparison.md` is regenerated to a 4-of-4 verdict. The
-deprecated pure-Python prototype is unchanged (it already showed the boundary via a
-gate-timing artifact, not stateful settling).
+**UPDATE (2026-06-23) — knob 2 made functional; signature is LATENCY, not go-success.**
+The integration sub-step is now a stateful carried-state integrator
+(`BGIntegratorDriver`, `src/nrp_bga_sb/bg_integrator.py`): GPR activations persist
+across emission steps within a trial and are read out before convergence (one carried
+Jacobi sweep per integration tick, no decision window), so the integration RATE controls
+how far the BG has settled at any moment. `BGModel.step`/`BGIntegratorState` provide the
+carried sweep; `BGModel.compute` is unchanged (full-convergence path, backs M2). The nrp
+`bg` engine delegates to the driver and `config_gen` passes `integration_hz`.
+
+The knob is no longer idempotent, but its observable effect in the nrp pipeline is
+decision **latency**, not go-success rate: nrp scores release if the gate EVER opens
+during the 300 ms sim, so a slow integrator still settles — just later. Measured
+first-release time falls monotonically with rate where integration is the bottleneck
+(~208 ms @5 Hz → ~108 @10 Hz → ~58 @20 Hz; floors ~60–80 ms ≥40 Hz), demonstrated by
+`experiments/nrp_integration_latency.py` (→ `nrp/results/integration_latency.json`).
+
+Why the go-success ablation is unchanged: forcing an integration go-success *miss* @5 Hz
+needs a <200 ms decision window to exclude the 5 Hz tick at t=200 ms, but nrp's FTILoop
+slow-sampler staleness delivers the 10 Hz sampler's strong evidence at ~207 ms, so that
+same window regresses `sampling@10Hz` (success→miss) — irreconcilable with a scalar window.
+The prototype's `integration@5Hz` miss is itself a 200 ms-deadline artifact (its tick loop
+is exactly 200 ticks). So `nrp/results/ablation.json` and the comparison report are
+intentionally left unchanged (the integration go-success row stays `1.0`); the latency
+experiment carries the dissociation evidence. The deprecated pure-Python prototype is
+untouched.
 ```
 
 - [ ] **Step 2: Update PROJECT_MEMORY §1 current state**
@@ -751,10 +822,14 @@ Append a bullet to §1 recording sub-project completion (keep prior bullets verb
 
 ```markdown
 - **Knob-2 stateful integrator complete (2026-06-23).** The nrp integration
-  sub-step knob is now functionally dissociable via `BGIntegratorDriver`
-  (carried-state GPR integrator, readout-before-convergence). nrp integration
-  ablation reproduces the prototype boundary; all four knobs hold (4-of-4
-  comparison verdict). `BGModel.compute` unchanged; prototype untouched. See §15.7.
+  sub-step knob is now functional (non-idempotent) via `BGIntegratorDriver`
+  (carried-state GPR integrator, readout-before-convergence, no decision window).
+  Its nrp signature is decision LATENCY, not go-success: release time falls with
+  integration rate (~208 ms @5 Hz → ~58 @20 Hz), shown by
+  `experiments/nrp_integration_latency.py`. The go-success ablation + comparison
+  report are intentionally unchanged (the continuous-release metric can't exhibit
+  the knob, and forcing it regresses sampling — see §15.7). `BGModel.compute`
+  unchanged; prototype untouched.
 ```
 
 - [ ] **Step 3: Run the full host suite + ruff**
@@ -764,7 +839,7 @@ Run:
 python -m pytest -q -m "not nrp"
 ruff check .
 ```
-Expected: all host tests pass (≥ previous 723 + the new Task 1/2 tests); ruff clean.
+Expected: all host tests pass (the prior suite + the new Task 1/2/5 host tests); ruff clean. NOTE: `ruff check .` may surface ~22 pre-existing repo-wide errors that are NOT a merge gate (recorded in the prior ledger); the gate is that the files THIS branch touched are ruff-clean.
 
 - [ ] **Step 4: Commit**
 
@@ -779,12 +854,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 5: Update auto-memory**
 
-Update `/home/fom/.claude/projects/-home-fom-code-NRP-BGA-SB/memory/project_gonogo_comparison.md` (or create a new `project_knob2_integrator.md`) noting: knob 2 made functional on the nrp side via `BGIntegratorDriver`; comparison now 4-of-4; prototype unchanged; branch `knob2-stateful-integrator` (not pushed). Add the index line to `MEMORY.md`. (No git commit needed for the auto-memory dir.)
+Create `/home/fom/.claude/projects/-home-fom-code-NRP-BGA-SB/memory/project_knob2_integrator.md` noting: knob 2 made functional/non-idempotent on the nrp side via `BGIntegratorDriver` (carried-state, no window); signature is decision LATENCY not go-success (release ~208 ms @5 Hz → ~58 @20 Hz); go-success ablation + comparison report intentionally unchanged (continuous-release metric can't show it; windowed form regresses sampling — irreconcilable scalar window); prototype untouched; branch `knob2-stateful-integrator` (not pushed). Add the index line to `MEMORY.md`. (No git commit needed for the auto-memory dir.)
 
 ---
 
-## Notes for the executor
+## Notes for the executor (Revision 2 — latency-signature framing)
 
 - **Do not push.** The user pushes.
-- Tasks 1–3 are pure host work and fully testable now. Task 4 is a thin engine edit verified by the gated runtime in Task 5. Tasks 5–6 require the `.nrp_env` runtime for the snapshot regeneration; if unavailable, complete Tasks 1–4, commit, and report that the gated regeneration is pending the runtime.
-- The boundary proof that matters is **Task 2** (host, deterministic). The gated ablation in Task 5 confirms the engine feeds the driver correctly; if its integration boundary lands off 5 Hz, the single calibration point is `ACCUMULATION_MS` in `bg_engine.py` (and the matching `accumulation_ms` in the driver test).
+- Tasks 1, 3 are committed and unchanged (`9abd65f`, `2cd3cc0`). Tasks 2 and 4 are REWORKED in Revision 2 (driver loses its window; engine loses `ACCUMULATION_MS`) — they overwrite their prior commits with new commits. Task 5 is REPLACED (latency experiment, not ablation regen). Task 6 documents the latency finding.
+- The dissociation proof that matters is **Task 2** (host, deterministic): release latency monotone-decreasing across 5 → 10 → 20 Hz (200/100/50 ms on the host). The gated Task 5 runtime test confirms it end-to-end (~208/108/58 ms).
+- The nrp runtime IS available in this environment (`NRPCoreSim` on PATH, host numpy 1.26.4 < 2). The integration-latency experiment is ~1 min (6 trials × ~9 s); allow a long Bash timeout.
+- `nrp/results/ablation.json`, `docs/nrp_vs_prototype_comparison.md`, and `tests/nrp/test_compare.py` are intentionally **unchanged** — do not edit them.
