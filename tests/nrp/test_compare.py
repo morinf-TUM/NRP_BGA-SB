@@ -1,7 +1,57 @@
 import json
 from pathlib import Path
 
+from nrp.compare import (
+    KNOBS,
+    load_nrp_ablation,
+    load_nrp_gonogo_sweep,
+    load_prototype_ablation,
+    load_prototype_gonogo_sweep,
+)
+
 RESULTS = Path(__file__).resolve().parents[2] / "nrp" / "results"
+PROTO = Path(__file__).resolve().parents[2] / "deprecated_toy_prototype_results"
+
+
+def test_load_prototype_ablation_normalizes_and_maps(tmp_path):
+    records = [
+        {"condition": "baseline", "knob_name": "all", "freq_hz": 160.0, "miss_rate": 0.0},
+        {"condition": "sweep", "knob_name": "input_sampling_hz", "freq_hz": 5.0, "miss_rate": 1.0},
+        {"condition": "sweep", "knob_name": "integration_step_hz", "freq_hz": 5.0, "miss_rate": 0.0},
+    ]
+    p = tmp_path / "ab.json"
+    p.write_text(json.dumps(records))
+    out = load_prototype_ablation(p)
+    # 'all' baseline excluded; miss_rate -> go_success_rate; names mapped.
+    assert "all" not in out
+    assert out["sampling"][5.0] == 0.0
+    assert out["integration"][5.0] == 1.0
+
+
+def test_load_nrp_ablation_coerces_str_hz_keys():
+    out = load_nrp_ablation(RESULTS / "ablation.json")
+    assert out["sampling"][5.0] == 0.0
+    assert out["integration"][5.0] == 1.0
+    assert set(out) == set(KNOBS)
+
+
+def test_load_prototype_gonogo_sweep_filters_and_aggregates(tmp_path):
+    records = [
+        {"paradigm": "go_nogo", "frequency_hz": 10.0, "go_success_rate": 0.0},
+        {"paradigm": "go_nogo", "frequency_hz": 10.0, "go_success_rate": 1.0},
+        {"paradigm": "two_choice", "frequency_hz": 10.0, "go_success_rate": 0.0},
+    ]
+    p = tmp_path / "fs.json"
+    p.write_text(json.dumps(records))
+    out = load_prototype_gonogo_sweep(p)
+    # two_choice excluded; go_nogo rates averaged: (0.0 + 1.0) / 2 = 0.5
+    assert out == {10.0: 0.5}
+
+
+def test_load_nrp_gonogo_sweep_coerces_str_hz_keys():
+    out = load_nrp_gonogo_sweep(RESULTS / "gonogo_sweep.json")
+    assert out[5.0] == 0.0
+    assert out[10.0] == 1.0
 
 
 def test_committed_snapshots_lock_key_divergence():
