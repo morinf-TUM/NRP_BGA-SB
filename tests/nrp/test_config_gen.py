@@ -38,3 +38,15 @@ def test_build_config_committed_three_rates():
     tf_names = {t["Name"] for t in cfg["DataPackProcessingFunctions"]}
     assert {"bg_to_commitment", "commitment_to_thalamus"} <= tf_names
     assert "bg_to_thalamus" not in tf_names
+
+
+def test_four_knob_maps_all_rates():
+    from nrp.config_gen import build_config_four_knob
+    cfg, overlay = build_config_four_knob(
+        input_sampling_hz=20.0, integration_hz=80.0,
+        output_emission_hz=40.0, commitment_hz=10.0)
+    engines = {e["EngineName"]: e for e in cfg["EngineConfigs"]}
+    assert engines["sampler"]["EngineTimestep"] == 0.05      # 20 Hz
+    assert engines["bg"]["EngineTimestep"] == 1.0 / 40.0     # 40 Hz emission
+    assert engines["commitment"]["EngineTimestep"] == 0.1    # 10 Hz
+    assert overlay["integration_substeps"] == 2              # 80/40

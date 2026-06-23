@@ -96,3 +96,16 @@ def build_config_committed(*, input_sampling_hz: float, output_emission_hz: floa
             {"Name": "log_step", "FileName": "nrp/tfs/tf_log.py"},
         ],
     }
+
+
+def build_config_four_knob(*, input_sampling_hz: float, integration_hz: float,
+                           output_emission_hz: float, commitment_hz: float,
+                           name: str = "gonogo_4k") -> tuple[dict, dict]:
+    cfg = build_config_committed(
+        input_sampling_hz=input_sampling_hz,
+        output_emission_hz=output_emission_hz,
+        commitment_hz=commitment_hz, name=name)
+    # Knob 2 rides on the BG engine via a params overlay (internal sub-steps),
+    # not as an EngineTimestep. substeps = how many integration steps per emission.
+    substeps = max(1, round(integration_hz / output_emission_hz))
+    return cfg, {"integration_substeps": substeps}
