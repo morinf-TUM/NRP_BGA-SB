@@ -120,3 +120,37 @@ def test_compare_frequency_sweep_onset_none_when_all_miss():
     verdict = compare_frequency_sweep({10.0: 0.0, 20.0: 0.0}, {10.0: 0.0})
     assert verdict.proto_onset_hz is None
     assert verdict.nrp_onset_hz is None
+
+
+from nrp.compare import build_verdict, format_report
+
+
+def test_build_verdict_summary_names_integration():
+    proto_ab = load_prototype_ablation(PROTO / "ablation_frequency_v2.json")
+    nrp_ab = load_nrp_ablation(RESULTS / "ablation.json")
+    proto_fs = load_prototype_gonogo_sweep(PROTO / "frequency_sweep_results.json")
+    nrp_fs = load_nrp_gonogo_sweep(RESULTS / "gonogo_sweep.json")
+    verdict = build_verdict(
+        compare_ablation(proto_ab, nrp_ab),
+        compare_frequency_sweep(proto_fs, nrp_fs),
+    )
+    assert "3 of 4" in verdict.summary
+    assert "integration" in verdict.summary.lower()
+
+
+def test_format_report_contains_tables_and_callout():
+    proto_ab = load_prototype_ablation(PROTO / "ablation_frequency_v2.json")
+    nrp_ab = load_nrp_ablation(RESULTS / "ablation.json")
+    proto_fs = load_prototype_gonogo_sweep(PROTO / "frequency_sweep_results.json")
+    nrp_fs = load_nrp_gonogo_sweep(RESULTS / "gonogo_sweep.json")
+    verdict = build_verdict(
+        compare_ablation(proto_ab, nrp_ab),
+        compare_frequency_sweep(proto_fs, nrp_fs),
+    )
+    report = format_report(verdict)
+    assert report.startswith("# Go/No-Go: Prototype vs nrp-core")
+    assert "## Ablation" in report
+    assert "## Frequency sweep" in report
+    assert "integration" in report.lower()
+    assert "5" in report  # the 5 Hz divergence appears
+    assert "conflict" in report.lower()  # the sweep caveat is present

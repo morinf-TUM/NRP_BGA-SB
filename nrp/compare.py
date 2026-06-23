@@ -180,3 +180,95 @@ def compare_frequency_sweep(
             "frequency or per-frequency rates."
         ),
     )
+
+
+# --- Overall verdict + report ---
+
+
+@dataclass
+class OverallVerdict:
+    ablation: AblationVerdict
+    sweep: SweepVerdict
+    summary: str
+
+
+def build_verdict(ablation: AblationVerdict, sweep: SweepVerdict) -> OverallVerdict:
+    held = [kv.knob for kv in ablation.knobs if kv.holds]
+    diverged = [kv.knob for kv in ablation.knobs if not kv.holds]
+    summary = (
+        f"{len(held)} of {len(ablation.knobs)} knobs reproduce the prototype "
+        f"exactly across the common grid ({', '.join(held)})."
+    )
+    if diverged:
+        # The expected, scientifically meaningful outcome: integration diverges
+        # because the nrp sub-step is idempotent on the stateless BG solver.
+        summary += (
+            f" The {', '.join(diverged)} knob(s) diverge — see the per-knob table; "
+            f"this is the knob-2 idempotence finding (PROJECT_MEMORY §15.7) and "
+            f"motivates the separate knob-2 modeling project."
+        )
+    return OverallVerdict(ablation=ablation, sweep=sweep, summary=summary)
+
+
+def _ablation_table(ablation: AblationVerdict) -> str:
+    # Column frequencies = union across all knob rows, sorted.
+    freqs = sorted({r.freq_hz for kv in ablation.knobs for r in kv.rows})
+    header = "| knob | " + " | ".join(f"{f:g} Hz" for f in freqs) + " | holds |"
+    sep = "|" + "---|" * (len(freqs) + 2)
+    lines = [header, sep]
+    for kv in ablation.knobs:
+        by_hz = {r.freq_hz: r for r in kv.rows}
+        cells = []
+        for f in freqs:
+            row = by_hz.get(f)
+            if row is None or (row.proto_rate is None and row.nrp_rate is None):
+                cells.append("–")
+            else:
+                p = "–" if row.proto_rate is None else f"{row.proto_rate:g}"
+                n = "–" if row.nrp_rate is None else f"{row.nrp_rate:g}"
+                mark = ""
+                if row.tag == "common" and classify_regime(row.proto_rate) != classify_regime(row.nrp_rate):
+                    mark = " ✗"
+                cells.append(f"{p}/{n}{mark}")
+        status = "✓" if kv.holds else f"✗ @ {', '.join(f'{x:g}' for x in kv.divergent_freqs)} Hz"
+        lines.append(f"| {kv.knob} | " + " | ".join(cells) + f" | {status} |")
+    return "\n".join(lines)
+
+
+def _sweep_table(sweep: SweepVerdict) -> str:
+    freqs = sorted(set(sweep.proto_rows) | set(sweep.nrp_rows))
+    header = "| side | " + " | ".join(f"{f:g} Hz" for f in freqs) + " | onset |"
+    sep = "|" + "---|" * (len(freqs) + 2)
+
+    def fmt(rows: dict[float, float], onset: float | None) -> str:
+        cells = [(f"{rows[f]:g}" if f in rows else "–") for f in freqs]
+        onset_s = "none" if onset is None else f"{onset:g} Hz"
+        return " | ".join(cells) + f" | {onset_s} |"
+
+    return "\n".join([
+        header,
+        sep,
+        "| prototype | " + fmt(sweep.proto_rows, sweep.proto_onset_hz),
+        "| nrp-core | " + fmt(sweep.nrp_rows, sweep.nrp_onset_hz),
+    ])
+
+
+def format_report(verdict: OverallVerdict) -> str:
+    """Render the comparison as a self-contained markdown report. Cells show
+    prototype/nrp go-success; ✗ marks a common-grid regime divergence."""
+    return f"""# Go/No-Go: Prototype vs nrp-core Comparison
+
+**Verdict:** {verdict.summary}
+
+## Ablation (primary, like-for-like)
+
+Cells are prototype/nrp go-success rate; ✗ marks a common-grid regime divergence.
+
+{_ablation_table(verdict.ablation)}
+
+## Frequency sweep (secondary, qualitative)
+
+> {verdict.sweep.caveat}
+
+{_sweep_table(verdict.sweep)}
+"""
