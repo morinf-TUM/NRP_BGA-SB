@@ -30,6 +30,10 @@ This file is the primary source of truth for project context. It is derived from
   latency/jitter/dropout decomposition, and three-interpretation comparison.  Host
   test suite: 732 tests, ruff clean.
 - The two `bg_`-prefixed files in the project root are the authoritative source documents that motivated this memory.
+- **NRP-core binding complete (go/no-go).** Four-knob frequency model realised on
+  the real NRPCoreSim/FTILoop runtime (`nrp/`); BG-frequency signature and ablation
+  boundary reproduced. See §15.7. Legacy pure-Python outputs badged under
+  `deprecated_toy_prototype_*`.
 
 ### Language and build (Task 0.1, 2026-06-19)
 
@@ -310,7 +314,31 @@ Start with **JSON DataPacks** (simplest, no protobuf codegen). Migrate to protob
 
 Whenever any of these is flipped, update §15.1 with the new preset / commit, and append a note in §15.5 if quirks emerge.
 
-### 15.7 Verified vs unverified claims
+### 15.7 Realised binding (nrp/ package)
+
+The nrp-core binding is implemented under `nrp/` and validated end-to-end on
+go/no-go. Mapping of the four §5 knobs to the runtime:
+
+| §5 knob | Realisation | Where |
+|---|---|---|
+| input sampling frequency | `sampler` engine `EngineTimestep` | `nrp/engines/sampler_engine.py` |
+| internal integration step | N sub-steps inside one BG `runLoop` (params overlay `integration_substeps`) | `nrp/engines/bg_engine.py` |
+| output emission frequency | `bg` engine `EngineTimestep` | `nrp/engines/bg_engine.py` |
+| commitment update frequency | `commitment` engine `EngineTimestep` | `nrp/engines/commitment_engine.py` |
+
+Cortex runs at 1000 Hz (1 ms base step); thalamus at 1000 Hz. One NRPCoreSim
+run = one trial; sweeps generate per-condition configs (`nrp/config_gen.py`) and
+invoke NRPCoreSim (`nrp/run.py`). Outcome classification is offline
+(`nrp/score.py`), reusing the existing ThalamusGate notion of "released".
+Acceptance is categorical (signature survives), not bit-identical across the
+IPC boundary. Validation: `tests/nrp/test_nrp_*.py` (marked `nrp`, deselected by
+default). Result: the go-success signature (0.0 at 5 Hz, 1.0 at ≥10 Hz) and the
+single-knob ablation boundary survive the real runtime.
+
+Out of scope of this binding: pysim plant embodiment, paradigms other than
+go/no-go, and perturbation (latency/jitter/dropout/phase-offset) TFs.
+
+### 15.8 Verified vs unverified claims
 
 - **Verified by reading source / docs / running the binary:** §15.1, §15.2, §15.4's `EngineTimestep` semantics and FTILoop step algorithm.
 - **Likely but to confirm in Phase 0 by running an experiment:**
