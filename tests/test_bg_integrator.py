@@ -1,7 +1,10 @@
+import numpy as np
+
 from nrp_bga_sb.bg_integrator import BGIntegratorDriver
+from nrp_bga_sb.bg_model import BGIntegratorState, BGModel, BGModelConfig
 from nrp_bga_sb.cortex import CortexConfig, CortexEvidenceGenerator
-from nrp_bga_sb.thalamus import ThalamusConfig, ThalamusGate
 from nrp_bga_sb.schemas import TrialLog
+from nrp_bga_sb.thalamus import ThalamusConfig, ThalamusGate
 
 EMISSION_HZ = 160.0          # the BG engine wakes at the emission rate (others pinned high)
 SIM_MS = 300.0               # nrp SimulationTimeout = 0.3 s
@@ -43,9 +46,6 @@ def test_every_rate_eventually_releases():
 def test_integrator_is_non_idempotent():
     # A second sweep on the same evidence changes the readout (margin grows) — the
     # property the old stateless solver lacked.
-    import numpy as np
-    from nrp_bga_sb.bg_model import BGIntegratorState, BGModel, BGModelConfig
-
     model = BGModel(BGModelConfig())
     sal = np.array([0.65, 0.35])
     s1 = model.step(BGIntegratorState.initial(2), sal, n_sweeps=1)

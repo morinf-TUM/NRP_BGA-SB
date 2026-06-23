@@ -1,8 +1,8 @@
 import pytest
 
-pytestmark = pytest.mark.nrp
-
 from experiments.nrp_integration_latency import measure
+
+pytestmark = pytest.mark.nrp
 
 
 def test_release_latency_decreases_with_rate(tmp_path):

@@ -54,7 +54,8 @@ def test_compute_output_unchanged_canonical_levels():
 def test_selection_latency_matches_adapter_formula():
     cfg = BGModelConfig()
     # T_winner>0 path and the no-selection cap.
-    assert abs(selection_latency_s(cfg, 0.2) - (cfg.latency_min_ms + cfg.latency_scale_ms / 0.25) / 1000.0) < 1e-12
+    expected = (cfg.latency_min_ms + cfg.latency_scale_ms / 0.25) / 1000.0
+    assert abs(selection_latency_s(cfg, 0.2) - expected) < 1e-12
     assert selection_latency_s(cfg, 0.0) == cfg.latency_max_ms / 1000.0
 
 
