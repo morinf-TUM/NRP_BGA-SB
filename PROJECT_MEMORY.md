@@ -36,6 +36,18 @@ This file is the primary source of truth for project context. It is derived from
   NRPCoreSim/FTILoop runtime (`nrp/`); BG-frequency signature and ablation
   boundary reproduced. See §15.7. Legacy pure-Python outputs badged under
   `deprecated_toy_prototype_*`.
+- **Go/no-go prototype-vs-nrp-core comparison complete (2026-06-23).** Offline,
+  host-only comparison (`nrp/compare.py`, pure stdlib) of the deprecated
+  pure-Python prototype's go/no-go results against the nrp-core binding
+  snapshots, driven by `experiments/nrp_vs_prototype.py` into the committed
+  report `docs/nrp_vs_prototype_comparison.md`. Headline verdict (a DIVERGENCE,
+  asserted by `tests/nrp/test_compare.py`): 3 of 4 knobs
+  (sampling/emission/commitment) reproduce the prototype exactly; the
+  integration knob diverges at 5 Hz (prototype go-success 0.0 vs nrp 1.0) — the
+  knob-2 idempotence finding (§15.7), motivating a separate stateful-integrator
+  sub-project. Frequency-sweep comparison is qualitative-only (the prototype
+  JSON aggregates conflict levels). nrp final snapshots now committed under
+  `nrp/results/` (`nrp/run/` stays gitignored).
 
 ### Language and build (Task 0.1, 2026-06-19)
 
