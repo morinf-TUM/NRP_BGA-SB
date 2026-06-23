@@ -60,6 +60,40 @@ This is the **same machinery** that already produces the 5 Hz boundary for the o
 knobs (cortical ramp + gate timing). The `0.0 @ 5 Hz → 1.0 @ ≥10 Hz` boundary therefore
 emerges naturally, with no artificial threshold tuning.
 
+A host simulation of the proposed driver against the real cortex ramp confirms this exactly,
+with the accumulation window taken as the half-open interval `[0, accumulation_ms)` so the
+5 Hz tick at `t = 200 ms` is excluded (mirroring the prototype's `range(200)`):
+
+| integration rate | integration-tick times (ms) within `[0,200)` | released? |
+|---|---|---|
+| 5 Hz | `{0}` (neutral) | **no → miss** |
+| 10 Hz | `{0, 100}` (100 ms risen → margin 0.20) | yes → success |
+| 20 Hz | `{0, 50, 100, 150}` | yes → success |
+| ≥40 Hz | … | yes → success |
+
+The nrp scorer (`nrp/score.py`) reports success if the gate *ever* opens during the run, so a
+miss requires the readout margin to stay below `margin_threshold` at **every** emission readout
+throughout the trial — which holds at 5 Hz because the single early sweep on neutral evidence
+never advances and no later integration tick fires inside the window.
+
+## Revised scope (nrp-only)
+
+During planning, inspection of the committed results showed the divergence is **entirely on the
+nrp side**:
+
+- **Prototype** integration knob already shows `0.0 @ 5 Hz → 1.0 @ ≥10 Hz` — but via a
+  *gate-timing / evidence-staleness* artifact (at 5 Hz the integration gate fires once at tick 0
+  on neutral evidence, full-converges, and never re-fires), not via incomplete settling.
+- **nrp** integration knob is `1.0` across the entire 5–160 Hz grid — the sole inert knob and the
+  sole source of the comparison divergence.
+
+The fix is therefore applied to the **nrp side only**. The deprecated pure-Python prototype
+(`ScheduledBGAdapter`, `deprecated_toy_prototype_results/`) is left frozen and untouched:
+migrating its Gate 2 to the stateful stepper would change its mechanism (settling vs. staleness),
+is not behaviour-preserving at intermediate rates, and would risk the 723-test hot path for **zero
+change to the comparison outcome**. The shared `BGModel.step` science is still introduced and used
+by nrp.
+
 ## Components and changes
 
 ### `src/nrp_bga_sb/bg_model.py` — additive stateful stepper
@@ -75,76 +109,89 @@ emerges naturally, with no artificial threshold tuning.
   the path used by M2 validation and all direct-call policy paths; `compute()` is equivalent
   to `step` on a fresh state iterated until convergence.
 
-### `src/nrp_bga_sb/scheduler.py` — prototype Gate 2
+### `src/nrp_bga_sb/bg_integrator.py` — host-testable stateful driver (new)
 
-- Gate 2 (integration) advances a **per-call** carried integrator by **one sweep** on
-  `last_sampled_evidence`, instead of calling `base_policy` to full convergence.
-- Because the tick loop runs at `base_dt_ms = 1 ms`, cumulative sweeps by the deadline
-  ≈ `integration_step_hz × accumulation_s` — decoupled from emission rate → **dissociable**.
-- The final readout is converted to `BGDecision` (incl. the existing latency mapping) at the
-  end of the call. The adapter's documented cross-call statelessness is preserved: integrator
-  state lives only within one `__call__`.
+The nrp engine file imports `nrp_core` and cannot run on the host, so the schedule + stepping
+logic lives in a pure module the engine delegates to (the established pattern: engines delegate
+to validated `src/nrp_bga_sb/` science). New `BGIntegratorDriver`:
 
-### `nrp/engines/bg_engine.py` — real-runtime engine
+- Owns a `BGModel` and a carried `BGIntegratorState`, plus `integration_hz` and `accumulation_ms`.
+- `advance(elapsed_ms, evidence) -> BGDecision`: if a new integration-tick boundary
+  (`k / integration_hz` seconds, for `k·period < accumulation_ms`) has been crossed since the
+  last call, performs **one** carried Jacobi sweep on `evidence`; then returns the current readout
+  as a `BGDecision` (reusing the existing latency mapping). Outside the window it advances no
+  further and returns the held readout.
+- Because it is pure Python, host tests feed it a deterministic `(elapsed_ms, evidence)` sequence
+  drawn from `CortexEvidenceGenerator` and **lock the boundary** (`5 Hz` never clears margin;
+  `10 Hz` clears at the 100 ms tick) — independent of the nrp runtime.
 
-- Carry the integrator state on the `Script` instance across `runLoop` calls (one NRPCoreSim
-  run = one trial; state re-initialises at trial start in `initialize`).
-- Drive the number of sweeps performed per `runLoop` off **elapsed sim time** so cumulative
-  sweeps ≈ `integration_hz × elapsed_s`, mirroring the prototype tick loop. Each sweep uses
-  the then-current `sampled_evidence` datapack.
-- The `for _ in range(self._substeps)` idempotent loop and its NOTE comment are replaced.
+### `nrp/engines/bg_engine.py` — real-runtime engine (thin delegation)
 
-### `nrp/config_gen.py` — rate→work mapping
+- Construct one `BGIntegratorDriver(integration_hz, accumulation_ms)` in `initialize` (state
+  re-initialises at trial start; one NRPCoreSim run = one trial).
+- In `runLoop`, pass `elapsed_ms = self._time_ns / 1e6` and the current `sampled_evidence` to
+  `driver.advance(...)`, then emit the returned `BGDecision`.
+- The `for _ in range(self._substeps)` idempotent loop and its NOTE comment are removed.
 
-- Replace the degenerate `substeps = max(1, round(integration_hz / output_emission_hz))` with
-  an **integration-rate-driven** schedule decoupled from emission, so cumulative sweeps track
-  `integration_hz × accumulation_s`. The exact parameterisation (e.g. an elapsed-time sweep
-  target, or fractional sweep credit per emission window) is pinned by the ablation regression
-  test so that the nrp side reproduces the prototype boundary.
+### `nrp/config_gen.py` — overlay carries the rate, not pre-baked sub-steps
+
+- `build_config_four_knob` currently pre-computes the degenerate
+  `substeps = max(1, round(integration_hz / output_emission_hz))` (which collapses to 1 across the
+  whole grid). Replace the overlay with `{"integration_hz": integration_hz}` (and the accumulation
+  window if not defaulted), so the engine's driver schedules sweeps from the rate directly,
+  decoupled from emission.
 
 ## Backward-compatibility strategy
 
 There is **one** code path (the stateful integrator) — no mode flag, no conditional fallback.
 Compatibility is a property of its *output*, not of branching:
 
-- `compute()` is untouched → **M2 validation stays exact** (13 ms low-conflict latency, correct
-  channel, monotone-with-conflict).
-- At the **baseline** integration rate (default `integration_step_hz = 1000 Hz`, ~200 sweeps
-  over a 200 ms window) the carried state has **fully converged** before the deadline, so its
-  readout is bit-identical to `compute()`. Consequently:
-  - the sampling / emission / commitment ablations (which hold integration at baseline) keep
-    identical numbers;
-  - the 723 existing closed-loop tests, which use the default config or `from_effective_hz`
-    at ≥10 Hz, are preserved.
-- Behaviour changes **only** for explicitly lowered integration rates — exactly the integration
-  ablation this sub-project intends to fix. A starved integrator reads out early; a well-fed one
-  lands on the same fixed point.
+- `BGModel.compute()` is **untouched** (additive `step()` only) → **M2 validation stays exact**
+  (13 ms low-conflict latency, correct channel, monotone-with-conflict), and every host/closed-loop
+  test that calls `compute()`/`BGAdapter`/`ScheduledBGAdapter` is unaffected because the prototype
+  path is not modified (nrp-only scope).
+- The new behaviour is confined to the nrp `bg` engine via `BGIntegratorDriver`. Within that path,
+  at the **baseline** integration rate the carried state has **fully converged** before the
+  deadline, so its readout equals `compute()`. Consequently the nrp sampling / emission /
+  commitment ablations (which hold integration at baseline `HIGH = 160 Hz`) keep identical numbers;
+  only the nrp **integration** ablation changes — exactly the row this sub-project fixes.
+- A starved integrator reads out early (miss); a well-fed one lands on the same fixed point.
 
 ## Testing (TDD, red-first)
 
 - **Unit (`bg_model`):** `step` is non-idempotent (margin grows with sweeps); converges to the
-  `compute()` fixed point within tolerance; zero-state readout = "channel 0, margin 0".
-- **Regression-lock:** the medium-conflict 1→2-sweep margin boundary; baseline-rate convergence
-  equals `compute()` for the canonical conflict levels.
-- **Prototype scheduler:** integration ablation over the standard Hz grid now shows
-  `0.0 @ 5 Hz → 1.0 @ ≥10 Hz`; the other three knobs unchanged.
-- **nrp binding (marked `nrp`):** the integration ablation now matches the prototype boundary;
-  regenerate `docs/nrp_vs_prototype_comparison.md` so **all four knobs hold** and update the
-  verdict; update `tests/nrp/test_compare.py` (currently asserts the divergence).
+  `compute()` fixed point within tolerance; zero-state readout = "channel 0, margin 0"; `compute()`
+  output unchanged (exact equality on the canonical conflict levels).
+- **Unit (`bg_integrator`) — the host-deterministic boundary lock:** driving
+  `BGIntegratorDriver` with the `CortexEvidenceGenerator` ramp yields **miss at 5 Hz** (margin never
+  reaches `margin_threshold`) and **success at 10/20/40 Hz** (margin clears at the 100/50/… ms
+  tick). This is the primary, runtime-independent proof that the knob is functional and matches the
+  boundary.
+- **config_gen:** `build_config_four_knob` overlay now carries `integration_hz`; existing
+  config-shape tests updated.
+- **nrp binding (marked `nrp`, gated runtime):** regenerate `nrp/results/ablation.json` via the
+  gated `experiments/nrp_ablation.py`; assert the integration row is now `0.0 @ 5 Hz → 1.0 @
+  ≥10 Hz` and the other three rows are unchanged. Update `tests/nrp/test_compare.py` assertions that
+  currently encode the divergence, and `nrp/compare.py` verdict text (`3 of 4` → `4 of 4`).
+  Regenerate `docs/nrp_vs_prototype_comparison.md` so **all four knobs hold**.
 - **Guard:** full host suite stays green; ruff clean.
 
 ## Key risks
 
-- `FrequencyConfig.from_effective_hz` co-varies integration with the other knobs, so the
-  Phase 5 frequency sweep, stop-signal, kinematic, and cerebellum experiments exercise the
-  stateful path at low rates. The boundary is dominated by sampling/emission, so the headline
-  signatures should be unchanged — but each must be verified green; TDD red-first on any that
-  shift.
-- nrp sweep-scheduling (elapsed-time target vs fractional credit) must be calibrated so the nrp
-  ablation matches the prototype; this is pinned by the nrp ablation regression test.
+- The exact nrp **runtime timing** (FTILoop step ordering, datapack propagation delay) is empirical
+  — it is what makes emission/commitment miss at 5 Hz today. The host driver boundary lock removes
+  most of this risk by proving the science deterministically; the gated `nrp` ablation then
+  validates that the engine feeds the driver the right `(elapsed_ms, evidence)` sequence. If the
+  runtime timing shifts the integration boundary, the `accumulation_ms` window / tick convention is
+  the single calibration point, pinned by the gated ablation assertion.
+- The gated `nrp` tests require the `.nrp_env` runtime (numpy<2, `source .nrp_env`, `-d <repo_root>`)
+  and are deselected by default; regenerating `nrp/results/ablation.json` must be run in that
+  environment.
 
 ## Out of scope
 
+- The deprecated pure-Python prototype (`ScheduledBGAdapter`, `deprecated_toy_prototype_results/`)
+  is **not** changed — see "Revised scope" above.
 - No new BG biophysics beyond carried-state Jacobi (no leaky-Euler relaxation parameter, no
   evidence-fraction accumulation — both considered and rejected in brainstorming).
 - No changes to paradigms, plants, or perturbation TFs.
